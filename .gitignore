@@ -45,8 +45,7 @@ vignettes/*.pdf
 *.DS_Store
 
 # Data
-data_raw/*.RData
-data_raw/*.rds
+data_raw/*
 data_clean/*
 
 # AWS
