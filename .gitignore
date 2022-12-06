@@ -50,3 +50,6 @@ data_clean/*
 
 # AWS
 aws_credentials.csv
+
+# Large intermediate results
+results/sleuth/sleuth_mod_fourCondition.RData
