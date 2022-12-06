@@ -317,7 +317,7 @@ sex_fit_comparison_df%>%
 age_sex_fit_comparison_plot<- age_fit_comparison_plot + sex_fit_comparison_plot
 
 ggsave(plot = age_sex_fit_comparison_plot, 
-       filename = paste(fig.dir, "model_fit_comparison_age_sex.png", sep="/"), 
+       filename = paste(fig.dir, "model_fit/model_fit_comparison_age_sex.png", sep="/"), 
        height=8, width = 8)
 ```
 
