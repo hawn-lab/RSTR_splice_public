@@ -1527,7 +1527,8 @@ library(tidyverse)</code></pre>
 ## ✖ dplyr::filter() masks stats::filter()
 ## ✖ dplyr::lag()    masks stats::lag()</code></pre>
 <pre class="r"><code>library(ggrepel)
-# library(patchwork)
+library(ggpubr)
+library(patchwork)
 # library(RColorBrewer)
 
 # Data access/import
@@ -1731,11 +1732,6 @@ structure and annotation).</p>
 <pre class="r"><code># Set directory to store plots
 fig.dir&lt;- &quot;./figs/sleuth_DE/tx_annotation&quot;</code></pre>
 </div>
-<div id="transcript-composition-structure" class="section level2">
-<h2>Transcript composition structure</h2>
-<pre class="r"><code># Set directory
-fig.dir&lt;-&quot;./figs/sleuth_DE/tx_composition_structure&quot;</code></pre>
-</div>
 </div>
 <div id="gene-plots" class="section level1">
 <h1>Gene plots</h1>
@@ -1783,60 +1779,63 @@ summary_plot_dir&lt;-&quot;figs/sleuth_DE/tx_gene_results_summary&quot;</code></
 ## other attached packages:
 ##  [1] rtracklayer_1.56.1   GenomicRanges_1.48.0 GenomeInfoDb_1.32.4 
 ##  [4] IRanges_2.30.1       S4Vectors_0.34.0     BiocGenerics_0.42.0 
-##  [7] ggrepel_0.9.2        forcats_0.5.2        stringr_1.5.0       
-## [10] dplyr_1.0.10         purrr_0.3.5          readr_2.1.3         
-## [13] tidyr_1.2.1          tibble_3.1.8         ggplot2_3.4.0       
-## [16] tidyverse_1.3.2     
+##  [7] patchwork_1.1.2      ggpubr_0.5.0         ggrepel_0.9.2       
+## [10] forcats_0.5.2        stringr_1.5.0        dplyr_1.0.10        
+## [13] purrr_0.3.5          readr_2.1.3          tidyr_1.2.1         
+## [16] tibble_3.1.8         ggplot2_3.4.0        tidyverse_1.3.2     
 ## 
 ## loaded via a namespace (and not attached):
-##  [1] matrixStats_0.63.0          bitops_1.0-7               
-##  [3] fs_1.5.2                    lubridate_1.9.0            
-##  [5] httr_1.4.4                  tools_4.2.1                
-##  [7] backports_1.4.1             bslib_0.4.1                
-##  [9] utf8_1.2.2                  R6_2.5.1                   
-## [11] lazyeval_0.2.2              DBI_1.1.3                  
-## [13] colorspace_2.0-3            rhdf5filters_1.8.0         
-## [15] withr_2.5.0                 tidyselect_1.2.0           
-## [17] compiler_4.2.1              textshaping_0.3.6          
-## [19] Biobase_2.56.0              cli_3.4.1                  
-## [21] rvest_1.0.3                 xml2_1.3.3                 
-## [23] DelayedArray_0.22.0         labeling_0.4.2             
-## [25] sass_0.4.4                  scales_1.2.1               
-## [27] systemfonts_1.0.4           digest_0.6.30              
-## [29] Rsamtools_2.12.0            rmarkdown_2.18             
-## [31] XVector_0.36.0              pkgconfig_2.0.3            
-## [33] htmltools_0.5.3             MatrixGenerics_1.8.1       
-## [35] highr_0.9                   dbplyr_2.2.1               
-## [37] fastmap_1.1.0               rlang_1.0.6                
-## [39] readxl_1.4.1                rstudioapi_0.14            
-## [41] farver_2.1.1                jquerylib_0.1.4            
-## [43] BiocIO_1.6.0                generics_0.1.3             
-## [45] jsonlite_1.8.3              BiocParallel_1.30.4        
-## [47] googlesheets4_1.0.1         RCurl_1.98-1.9             
-## [49] magrittr_2.0.3              GenomeInfoDbData_1.2.8     
-## [51] Matrix_1.5-3                Rhdf5lib_1.18.2            
-## [53] Rcpp_1.0.9                  munsell_0.5.0              
-## [55] fansi_1.0.3                 lifecycle_1.0.3            
-## [57] stringi_1.7.8               yaml_2.3.6                 
-## [59] SummarizedExperiment_1.26.1 zlibbioc_1.42.0            
-## [61] rhdf5_2.40.0                grid_4.2.1                 
-## [63] parallel_4.2.1              venn_1.11                  
-## [65] crayon_1.5.2                lattice_0.20-45            
-## [67] Biostrings_2.64.1           haven_2.5.1                
-## [69] hms_1.1.2                   knitr_1.41                 
-## [71] pillar_1.8.1                rjson_0.2.21               
-## [73] admisc_0.30                 codetools_0.2-18           
-## [75] reprex_2.0.2                XML_3.99-0.12              
-## [77] glue_1.6.2                  evaluate_0.18              
-## [79] data.table_1.14.6           modelr_0.1.10              
-## [81] vctrs_0.5.1                 tzdb_0.3.0                 
-## [83] cellranger_1.1.0            gtable_0.3.1               
-## [85] assertthat_0.2.1            cachem_1.0.6               
-## [87] xfun_0.35                   broom_1.0.1                
-## [89] restfulr_0.0.15             ragg_1.2.4                 
-## [91] googledrive_2.0.0           gargle_1.2.1               
-## [93] sleuth_0.30.0               GenomicAlignments_1.32.1   
-## [95] timechange_0.1.1            ellipsis_0.3.2</code></pre>
+##   [1] googledrive_2.0.0           colorspace_2.0-3           
+##   [3] ggsignif_0.6.4              rjson_0.2.21               
+##   [5] ellipsis_0.3.2              XVector_0.36.0             
+##   [7] fs_1.5.2                    rstudioapi_0.14            
+##   [9] farver_2.1.1                fansi_1.0.3                
+##  [11] lubridate_1.9.0             xml2_1.3.3                 
+##  [13] codetools_0.2-18            cachem_1.0.6               
+##  [15] knitr_1.41                  jsonlite_1.8.3             
+##  [17] Rsamtools_2.12.0            broom_1.0.1                
+##  [19] dbplyr_2.2.1                compiler_4.2.1             
+##  [21] httr_1.4.4                  backports_1.4.1            
+##  [23] sleuth_0.30.0               assertthat_0.2.1           
+##  [25] Matrix_1.5-3                fastmap_1.1.0              
+##  [27] lazyeval_0.2.2              gargle_1.2.1               
+##  [29] cli_3.4.1                   admisc_0.30                
+##  [31] htmltools_0.5.3             tools_4.2.1                
+##  [33] gtable_0.3.1                glue_1.6.2                 
+##  [35] GenomeInfoDbData_1.2.8      Rcpp_1.0.9                 
+##  [37] carData_3.0-5               Biobase_2.56.0             
+##  [39] cellranger_1.1.0            jquerylib_0.1.4            
+##  [41] rhdf5filters_1.8.0          vctrs_0.5.1                
+##  [43] Biostrings_2.64.1           xfun_0.35                  
+##  [45] rvest_1.0.3                 timechange_0.1.1           
+##  [47] lifecycle_1.0.3             restfulr_0.0.15            
+##  [49] rstatix_0.7.1               XML_3.99-0.12              
+##  [51] googlesheets4_1.0.1         zlibbioc_1.42.0            
+##  [53] scales_1.2.1                ragg_1.2.4                 
+##  [55] hms_1.1.2                   MatrixGenerics_1.8.1       
+##  [57] parallel_4.2.1              SummarizedExperiment_1.26.1
+##  [59] rhdf5_2.40.0                yaml_2.3.6                 
+##  [61] sass_0.4.4                  stringi_1.7.8              
+##  [63] venn_1.11                   highr_0.9                  
+##  [65] BiocIO_1.6.0                BiocParallel_1.30.4        
+##  [67] systemfonts_1.0.4           rlang_1.0.6                
+##  [69] pkgconfig_2.0.3             bitops_1.0-7               
+##  [71] matrixStats_0.63.0          evaluate_0.18              
+##  [73] lattice_0.20-45             Rhdf5lib_1.18.2            
+##  [75] labeling_0.4.2              GenomicAlignments_1.32.1   
+##  [77] tidyselect_1.2.0            magrittr_2.0.3             
+##  [79] R6_2.5.1                    generics_0.1.3             
+##  [81] DelayedArray_0.22.0         DBI_1.1.3                  
+##  [83] pillar_1.8.1                haven_2.5.1                
+##  [85] withr_2.5.0                 abind_1.4-5                
+##  [87] RCurl_1.98-1.9              modelr_0.1.10              
+##  [89] crayon_1.5.2                car_3.1-1                  
+##  [91] utf8_1.2.2                  tzdb_0.3.0                 
+##  [93] rmarkdown_2.18              grid_4.2.1                 
+##  [95] readxl_1.4.1                data.table_1.14.6          
+##  [97] reprex_2.0.2                digest_0.6.30              
+##  [99] textshaping_0.3.6           munsell_0.5.0              
+## [101] bslib_0.4.1</code></pre>
 </div>
 
 

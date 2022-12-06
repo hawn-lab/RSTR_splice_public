@@ -16,7 +16,8 @@ editor_options:
 # Wrangling and plotting
 library(tidyverse)
 library(ggrepel)
-# library(patchwork)
+library(ggpubr)
+library(patchwork)
 # library(RColorBrewer)
 
 # Data access/import
@@ -724,7 +725,8 @@ for(i in plotting_genes_of_interest_clean){
     filter(!is.na(exon_number))%>%
     group_by(transcript_id)%>%
     summarise(start= min(start), end = max(end))%>%
-    left_join(dplyr::select(gtf_sub, transcript_id, transcript_type, transcript_name))%>%
+    left_join(dplyr::select(gtf_sub, transcript_id, transcript_type, transcript_name),
+              by = "transcript_id")%>%
     distinct()%>%
     group_by(transcript_id)%>%
     mutate(label_position = start + (end-start)*1.01)
@@ -781,225 +783,6 @@ for(i in plotting_genes_of_interest_clean){
 }
 ```
 
-## Transcript composition structure
-
-```{r}
-# Set directory
-fig.dir<-"./figs/sleuth_DE/tx_composition_structure"
-```
-
-```{r echo=FALSE, eval=FALSE, message=FALSE}
-# Reduce plotting list to genes with multiple transcripts
-plotting_genes_of_interest_multiple_tx<-
-  sleuth_results_gene%>%
-  filter(ext_gene %in% plotting_genes_of_interest_clean)%>%
-  filter(num_aggregated_transcripts>1)%>%
-  dplyr::select(ext_gene)%>%
-  distinct()%>%
-  unlist()%>%
-  as.character()
-
-for(i in plotting_genes_of_interest_multiple_tx){
-  print(paste("Plot", match(i, plotting_genes_of_interest_multiple_tx), 
-              "of", length(plotting_genes_of_interest_multiple_tx)))
-  #------------------------------------------
-  #  Format GTF info for structure plotting
-  #-----------------------------------------
-  #Subset GTF for transcript info
-  gtf_sub<-filter(gtf_df, gene_name==i)%>%
-    filter(transcript_id %in% unique(sleuth_results_tx$target_id) | is.na(transcript_id))%>%
-    mutate(transcript_type = str_replace_all(transcript_type, "_", " "))%>%
-    mutate(transcript_type = factor(transcript_type, levels = names(biotype_colors)))
-  
-  
-  # Create DF with full range for each transcript & other info.
-  gtf_sub_tx_frame<-gtf_sub%>%
-    filter(!is.na(transcript_id))%>%
-    filter(!is.na(exon_number))%>%
-    group_by(transcript_id)%>%
-    summarise(start= min(start), end = max(end))%>%
-    left_join(dplyr::select(gtf_sub, transcript_id, transcript_type, transcript_name))%>%
-    distinct()%>%
-    group_by(transcript_id)%>%
-    mutate(label_position = start + (end-start)*1.01)
-  
-  # Establish panel.grid breaks at the start/stop of each exon
-  tx_panel_breaks<-unique(c(gtf_sub$start, gtf_sub$end))
-  
-  #------------------------------------------
-  #  Format plot DF for proportions
-  #-----------------------------------------
-  
-  # Assemble df for plotting proportion
-  plot_df<-
-    filter(so_object$target_mapping, ext_gene ==i)%>%
-    left_join(so_object$obs_norm_filt, by = "target_id")%>%
-    right_join(so_object$sample_to_covariates, by="sample")%>%
-    arrange(target_id)%>%
-    group_by(sample)%>%
-    mutate(prop_tpm = tpm/sum(tpm))%>%
-    group_by(target_id)%>%
-    mutate(mean_prop_tpm=mean(prop_tpm), max_prop_tpm=max(prop_tpm))%>%
-    left_join(dplyr::select(gtf_sub, transcript_id, transcript_name, transcript_type), 
-              by = c( "target_id" = "transcript_id"))%>%
-    distinct()%>%
-    separate(condition, c("RSTR", "TB"), sep="_", remove = FALSE)%>% # split condition into 2 factors
-    mutate(RSTR = factor(RSTR, levels = c("RSTR", "LTBI")))
-  
-  # reorder target levels by their mean expression in tpm
-  plot_df$target_id<-reorder(plot_df$target_id, plot_df$mean_prop_tpm)
-  plot_df$transcript_name<-reorder(plot_df$transcript_name, plot_df$mean_prop_tpm)
-  
-  # Assemble df for annotations
-  annotation_df<-sleuth_results_tx%>%
-    filter(effect=="RSTR")%>%
-    filter(ext_gene == i)%>%
-    mutate(condition = ifelse(str_detect(reference_level, "MEDIA"), "MEDIA",
-                              ifelse(str_detect(reference_level, "TB"), "TB", 
-                                     NA)))%>%
-    dplyr::select(target_id, ext_gene, pval, qval, condition)%>%
-    pivot_wider(names_from = condition, values_from = c(pval, qval))%>%
-    left_join(dplyr::select(plot_df, target_id, mean_prop_tpm, max_prop_tpm),
-              by = "target_id")%>%
-    distinct()%>%
-    mutate(annotation_MEDIA = ifelse(qval_MEDIA>=0.2, "", 
-                                     ifelse(qval_MEDIA<0.2 & qval_MEDIA>=0.1, "0.2", 
-                                            ifelse(qval_MEDIA<0.1 & qval_MEDIA>=0.05, "0.1",
-                                                   ifelse(qval_MEDIA<0.05 & qval_MEDIA>=0.01, "*",
-                                                          ifelse(qval_MEDIA<0.01 & qval_MEDIA>=0.001, "**",
-                                                                 ifelse(qval_MEDIA<0.001, "***", 
-                                                                        NA)))))),
-           annotation_TB = ifelse(qval_TB>=0.2, "", 
-                                  ifelse(qval_TB<0.2 & qval_TB>=0.1, "0.2", 
-                                         ifelse(qval_TB<0.1 & qval_TB>=0.05, "0.1",
-                                                ifelse(qval_TB<0.05 & qval_TB>=0.01, "*",
-                                                       ifelse(qval_TB<0.01 & qval_TB>=0.001, "**",
-                                                              ifelse(qval_TB<0.001, "***",
-                                                                     NA)))))))%>%
-    
-    mutate(x_ann = max_prop_tpm*1.1)%>%
-    mutate(target_id = factor(target_id, levels = levels(plot_df$target_id)))%>%
-    dplyr::select(target_id, contains("annotation"), x_ann)%>%
-    pivot_longer(cols = c(annotation_MEDIA, annotation_TB))%>%
-    mutate(TB= ifelse(str_detect(name, "MEDIA"), "MEDIA", 
-                      ifelse(str_detect(name, "TB"), "TB", NA)))%>%
-    mutate(RSTR = "RSTR")%>%
-    ungroup()%>%
-    mutate(y_ann = as.numeric(target_id))%>%
-    left_join(dplyr::select(gtf_sub, transcript_id, transcript_name)%>%distinct(), 
-              by = c("target_id" = "transcript_id"))
-  
-  
-  # Fill in missing info for TB
-  annotation_df<-bind_rows(annotation_df, 
-                           mutate(annotation_df, RSTR="LTBI", value = ""))%>%
-    mutate(y_ann_grouplab = ifelse(RSTR=="LTBI", y_ann+0.2, y_ann-0.2))
-  
-  # Make plot
-  tx_proportion_plot<-
-    plot_df%>%
-    group_by(sample)%>%
-    mutate(tpm_prop = tpm/sum(tpm))%>%
-    ggplot(aes(y=transcript_name, x=tpm_prop, color=condition, 
-               fill = condition, group = interaction(transcript_name, RSTR)))+
-    geom_boxplot(alpha=0.7)+
-    scale_color_manual(values = condition_colors)+
-    scale_fill_manual(values = condition_colors)+
-    geom_text(data=annotation_df, aes(label = value, y=y_ann, x=x_ann), 
-              color = "black", inherit.aes = F)+
-    geom_text(data=annotation_df, aes(label = RSTR, y=y_ann_grouplab, x=-0.1), 
-              color = "black", hjust=0, size=2, inherit.aes = F)+
-    xlab("Proportion TPM")+
-    ylab("Transcript")+
-    ggtitle(paste0(i, "\nTranscript Composition"))+
-    #labs(color = "Transcript ID", fill = "Transcript ID")+
-    #facet_grid(rows = vars(TB), cols = vars(RSTR))+
-    facet_grid(cols = vars(TB))+
-    scale_x_continuous(limits = c(-0.15, 1), breaks = seq(0,1,0.2))+
-    theme_bw()+
-    theme(legend.position = "none",
-          strip.background = element_blank(),
-          panel.grid.minor = element_blank(), 
-          plot.title = element_text(hjust=0.5))
-  
-  # Set composition plot size
-  # Set height based on number of tx visualized
-  plot_height = ifelse(length(unique(plot_df$target_id))<5, 5,
-                       length(unique(plot_df$target_id))*(2/3))
-  
-  #-----------------------------------------
-  #  Assemble Transcript Structure Plot
-  #-----------------------------------------
-  
-  # Additional Formatting
-  # Bind to mean expression for transcripts
-  gtf_sub_plot<-
-    gtf_sub%>%
-    left_join(dplyr::select(plot_df, transcript_name, mean_prop_tpm)%>%
-                distinct())
-  
-  # reorder target levels by their mean expression in tpm
-  gtf_sub_plot$transcript_name<-reorder(gtf_sub_plot$transcript_name,
-                                        gtf_sub_plot$mean_prop_tpm)
-  
-  # define x limits
-  tx_xmin<-min(tx_panel_breaks)
-  tx_xmax<-max(tx_panel_breaks)
-  
-  # Set breaks conditioned on span of gene
-  if(tx_xmax-tx_xmin>=5000){
-    tx_x_breaks<- c(tx_xmin, seq(ceiling(tx_xmin/0.5e4)*0.5e4, 
-                                 floor(tx_xmax/0.5e4)*0.5e4, 0.5e4), tx_xmax)} else{ 
-      tx_x_breaks<- c(tx_xmin, seq(ceiling(tx_xmin/0.1e4)*0.1e4, 
-                                   floor(tx_xmax/0.1e4)*0.1e4, 0.1e4), tx_xmax)}
-  
-  tx_x_break_labels<-as.character(tx_x_breaks/1000)
-  
-  tx_structure_plot<-
-    gtf_sub_plot%>%
-    filter(!is.na(transcript_id))%>%
-    filter(!is.na(exon_number))%>%
-    ggplot(aes(y=transcript_name))+
-    geom_segment(aes(x=start, xend=end, y=transcript_name, yend=transcript_name, 
-                     color = transcript_type), size = 5)+
-    geom_segment(data=gtf_sub_tx_frame, aes(x=start, xend=end, y=transcript_name,
-                                            yend=transcript_name, color=transcript_type))+
-    scale_color_manual(values = biotype_colors)+
-    ggtitle(paste0(i, "\nTranscript Structure"))+
-    ylab("")+
-    xlab(paste0(str_replace(unique(gtf_sub$seqnames), "chr", "Chromosome "), 
-                " Position (Mbp)"))+
-    labs(color = "Transcript \nBiotype")+
-    scale_x_continuous(
-      limits = c(tx_xmin, tx_xmax), breaks = tx_x_breaks, labels = tx_x_break_labels,
-      minor_breaks = tx_panel_breaks)+
-    theme_bw()+
-    theme(panel.grid.major.y = element_blank(), 
-          panel.grid.major.x = element_blank(),
-          axis.text.y = element_blank(),
-          axis.text.x = element_text(angle=25, vjust=1, hjust=1),
-          plot.title = element_text(hjust=0.5))
-  
-  # Set width based on range of gene.
-  plot_width = (tx_xmax-tx_xmin)*(8/76799) # Scales plot width based on the range of the gene
-  plot_width = ifelse(plot_width<6, 6, ifelse(plot_width>15, 15, plot_width))
-  
-  #-----------------------------------------
-  #  Assemble Multipanel
-  #-----------------------------------------
-  
-  tx_proportion_structure<-
-    tx_proportion_plot + tx_structure_plot
-  
-  # Name plot
-  plot.name<-paste(fig.dir, paste(i, "_Tx_tpm_proportions_4condition_Tx_Structure.png",
-                                  sep=""), sep="/")
-  
-  # Save plot
-  ggsave(plot = tx_proportion_structure, filename = plot.name, dpi=300,
-         height = plot_height, width = 2*plot_width)
-}
-```
 
 # Gene plots
 
