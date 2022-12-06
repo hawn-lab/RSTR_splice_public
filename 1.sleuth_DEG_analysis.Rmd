@@ -1,0 +1,554 @@
+---
+title: "Sleuth DEG Analysis"
+subtitle: "Sleuth Differential Expression"
+author: "Max Segnitz"
+output:
+  html_document:
+    toc: yes
+    toc_float:
+      collapsed: no
+date: "version `r format(Sys.time(), '%B %d, %Y')`"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r, echo=FALSE, warning=FALSE, messages = FALSE}
+set.seed(3822)
+
+# Data wrangling
+library(tidyverse)
+library(kableExtra)
+
+# Bioinformatic tools
+library(sleuth)
+
+# Plotting
+library(patchwork)
+
+# Load custom functions
+source("https://raw.githubusercontent.com/rmsegnitz/Bioinformatics_Tools/master/R_functions/sleuth_subset_sleuth_object.R")
+```
+
+# Load data
+#### Advanced gene filtering (PC genes only)
+
+This import utilizes custom rare-gene filtering (passes transcripts with at least 5 counts in at least 60% of any of the 4 treatment groups (phenotype*stim)), and is limited to transcripts in protein coding genes.
+
+```{r}
+# Load seq data with adv filtering
+filtered_targets_adv60<-read.csv(
+  "data_raw/sleuth_imports/uganda_monocyte_discovery_and_validation_gene_design_filter_count_5_group_60_PC.csv") %>%
+  column_to_rownames("X")
+
+SI_initial <- readRDS(
+  "data_clean/sleuth_import_discovery_and_validation_group_filter_count05_group60_normalized.rds")
+
+# Load full Uganda metadata
+uganda_meta_full<-
+  read.csv("data_raw/sample_data/2021.03.10RSTR_Hawn_metadata.csv")
+
+uganda_meta<-
+  uganda_meta_full%>%
+     filter(RS_SUB_ACCESSION_NO %in% SI_initial$sample_to_covariates$RSID)
+```
+
+### Update samples to covariate mapping
+
+```{r}
+# Format new STC df
+stc<-
+  SI_initial$sample_to_covariates%>%
+  left_join(
+    uganda_meta_full%>%
+    dplyr::select(FULLIDNO, RS_SUB_ACCESSION_NO, 
+                  M0_KCVDATE, KCHCA_AGE_YR_CURRENT, contains("family")), 
+    by = c("RSID" = "RS_SUB_ACCESSION_NO"))%>%
+  mutate(experiment=ifelse(grepl("discovery", project), 
+                           "original", 
+                              ifelse(grepl("validation", project), 
+                                     "validation", NA)))%>%
+  mutate(condition = relevel(factor(condition), ref = "LTBI_MEDIA"),
+         RSTR = factor(RSTR, levels=c("LTBI", "RSTR")),
+         TB=factor(TB, levels=c("MEDIA","TB")))
+
+# Assign new samples_to_covariates
+SI<-SI_initial
+SI$sample_to_covariates<-stc
+```
+
+### Drop repeated samples
+
+Drops resequenced samples as established in QC script.
+
+```{r}
+# Establish samples to retain
+keep_samples<-
+  SI$sample_to_covariates%>%
+  filter(sleuth_drop=="KEEP")%>%
+  dplyr::select(sample)%>%
+  unlist()
+
+# Subset Sleuth Imports
+SI<-subset_sleuth_samples(SI, samples=keep_samples)
+```
+
+# Test Differential Expression
+## Four Condition Analysis
+
+```{r}
+# set directories for this analysis
+res.dir<-"results/sleuth"
+fig.dir<-"figs/sleuth_DE"
+```
+
+```{r eval=FALSE}
+### Fit Sleuth models
+# Fit reduced model with covariates but no condition
+sleuth_mod_fourCondition <- sleuth_fit(SI, 
+                       ~  KCHCA_AGE_YR_CURRENT + M0_KCVSEX,
+                                       'reduced_noBatch')
+
+# Fit reduced model with covariates and batch but no condition
+sleuth_mod_fourCondition <- sleuth_fit(sleuth_mod_fourCondition, 
+                        ~ KCHCA_AGE_YR_CURRENT + M0_KCVSEX +  project, 
+                                       'reduced_batch')
+
+# Fit full model with covariates and condition 
+sleuth_mod_fourCondition <- sleuth_fit(sleuth_mod_fourCondition, 
+                         ~ condition + KCHCA_AGE_YR_CURRENT + M0_KCVSEX, 
+                                       'full_noBatch')
+
+# Fit full model without age
+sleuth_mod_fourCondition <- sleuth_fit(sleuth_mod_fourCondition, 
+                                       ~ condition + M0_KCVSEX + project,
+                                       'full_noAge')
+
+# Fit full model without sex
+sleuth_mod_fourCondition <- sleuth_fit(sleuth_mod_fourCondition, 
+                         ~ condition + KCHCA_AGE_YR_CURRENT + project,
+                                       'full_noSex')
+
+# Fit full model without covariates and condition 
+sleuth_mod_fourCondition <- sleuth_fit(sleuth_mod_fourCondition, 
+                         ~ condition + project, 
+                                       'full_noCov')
+
+ # Fit full model with covariates and condition 
+sleuth_mod_fourCondition <- sleuth_fit(sleuth_mod_fourCondition, 
+                        ~ condition + KCHCA_AGE_YR_CURRENT + M0_KCVSEX + project, 
+                                       'full_batch')
+
+#------------------------------------------------
+#   First relevel (set LTBI_TB as reference)
+#------------------------------------------------
+# relevel condition and refit full model
+sleuth_mod_fourCondition$sample_to_covariates<-sleuth_mod_fourCondition$sample_to_covariates%>%
+  mutate(condition = relevel(condition, ref="LTBI_TB"))
+
+# Fit full model with covariates and condition 
+sleuth_mod_fourCondition <- sleuth_fit(sleuth_mod_fourCondition, 
+                         ~ condition + KCHCA_AGE_YR_CURRENT + M0_KCVSEX, 
+                                       'full_2_noBatch')
+sleuth_mod_fourCondition <- sleuth_fit(sleuth_mod_fourCondition, 
+                         ~ condition + KCHCA_AGE_YR_CURRENT + M0_KCVSEX + project, 
+                                       'full_2_batch')
+# Fit full model without covariates and condition 
+sleuth_mod_fourCondition <- sleuth_fit(sleuth_mod_fourCondition, 
+                         ~ condition + project, 
+                                       'full_2_noCov')
+
+#------------------------------------------------
+#   Second relevel (set RSTR_MEDIA as reference)
+#------------------------------------------------
+ # relevel condition and refit full model
+sleuth_mod_fourCondition$sample_to_covariates<-sleuth_mod_fourCondition$sample_to_covariates%>%
+  mutate(condition = relevel(condition, ref="RSTR_MEDIA"))
+# Fit full model with covariates and condition 
+sleuth_mod_fourCondition <- sleuth_fit(sleuth_mod_fourCondition, 
+                         ~ condition + KCHCA_AGE_YR_CURRENT + M0_KCVSEX, 
+                                       'full_3_noBatch')
+sleuth_mod_fourCondition <- sleuth_fit(sleuth_mod_fourCondition, 
+                         ~ condition + KCHCA_AGE_YR_CURRENT + M0_KCVSEX + project, 
+                                       'full_3_batch')
+# Fit full model without covariates and condition 
+sleuth_mod_fourCondition <- sleuth_fit(sleuth_mod_fourCondition, 
+                         ~ condition + project, 
+                                       'full_3_noCov')
+```
+
+```{r eval=FALSE, include=FALSE}
+save(sleuth_mod_fourCondition,
+     file="results/sleuth/sleuth_mod_fourCondition.RData")
+```
+
+```{r include=FALSE}
+load("results/sleuth/sleuth_mod_fourCondition.RData")
+```
+
+### Assess Batch
+
+```{r echo=FALSE}
+# Plot sigma-squared with and without batch included in model
+batch_fit_comparison_df<-
+  sleuth_mod_fourCondition$fits$full_noBatch$summary%>%
+  mutate(fit = "without_batch")%>%
+  bind_rows(mutate(sleuth_mod_fourCondition$fits$full_batch$summary, 
+                   fit = "with_batch"))%>%
+  dplyr::select(target_id, fit, sigma_sq)%>%
+  pivot_wider(names_from = fit, values_from = sigma_sq)%>%
+  mutate(preferred_fit = ifelse(with_batch<without_batch, "with_batch",
+                                ifelse(without_batch<with_batch, "without_batch",
+                                       NA)))
+
+batch_fit_comparison_plot<-
+  batch_fit_comparison_df%>%
+  arrange(preferred_fit)%>%
+  ggplot(aes(x=(without_batch), y = (with_batch)))+
+  geom_abline(slope = 1, intercept = 0, linetype="dashed")+
+  geom_point(aes(color = preferred_fit))+
+  ylab(expression(paste(sigma^{2}, "  with Batch term" )))+
+  xlab(expression(paste(sigma^{2}, " without Batch term" )))+
+  ggtitle("Effect of Batch on model fit")+
+  theme_bw()+
+  coord_fixed(ratio = 1, 
+              xlim = range(c(batch_fit_comparison_df$without_batch,
+                             batch_fit_comparison_df$with_batch)), 
+              ylim =  range(c(batch_fit_comparison_df$without_batch,
+                              batch_fit_comparison_df$with_batch)))+
+  theme( plot.title = element_text(hjust=0.5))
+batch_fit_comparison_plot
+
+batch_fit_comparison_df%>%
+  group_by(preferred_fit)%>%
+  tally()%>%
+  mutate(`%` = n/sum(n))%>%
+  kable()%>%
+  kable_styling(bootstrap_options = "striped", full_width = F)
+```
+
+```{r  echo=FALSE}
+ggsave(plot = batch_fit_comparison_plot, 
+       filename = paste(fig.dir, "model_fit/model_fit_comparison_batch.png", sep="/"), 
+       height=8, width = 8)
+```
+
+### Assess Age and Sex
+
+```{r echo=FALSE}
+# AGE
+# Plot sigma-squared with and without batch included in model
+age_fit_comparison_df<-
+sleuth_mod_fourCondition$fits$full_noAge$summary%>%
+  mutate(fit = "without_age")%>%
+  bind_rows(mutate(sleuth_mod_fourCondition$fits$full_batch$summary, 
+                   fit = "with_age"))%>%
+  dplyr::select(target_id, fit, sigma_sq)%>%
+  pivot_wider(names_from = fit, values_from = sigma_sq)%>%
+  mutate(preferred_fit = ifelse(with_age<without_age, "with_age", 
+                                ifelse(without_age<with_age, "without_age",
+                                       NA)))
+
+age_fit_comparison_plot<-
+age_fit_comparison_df%>%
+  arrange(preferred_fit)%>%
+  ggplot(aes(x=(without_age), y = (with_age)))+
+  geom_abline(slope = 1, intercept = 0, linetype="dashed")+
+  geom_point(aes(color = preferred_fit))+
+  ylab(expression(paste(sigma^{2}, "  with Age term" )))+
+  xlab(expression(paste(sigma^{2}, " without Age term" )))+
+  ggtitle("Effect of age on model fit")+
+  theme_bw()+
+  coord_fixed(ratio = 1, 
+              xlim = range(c(age_fit_comparison_df$without_age, age_fit_comparison_df$with_age)), 
+              ylim =  range(c(age_fit_comparison_df$without_age, age_fit_comparison_df$with_age)))+
+  theme( plot.title = element_text(hjust=0.5), legend.position = "bottom")
+
+age_fit_comparison_plot
+
+age_fit_comparison_df%>%
+  group_by(preferred_fit)%>%
+  tally()%>%
+  mutate(`%` = n/sum(n))%>%
+  kable()%>%
+  kable_styling(bootstrap_options = "striped", full_width = F)
+
+#####
+# SEX
+
+# Plot sigma-squared with and without batch included in model
+sex_fit_comparison_df<-
+sleuth_mod_fourCondition$fits$full_noSex$summary%>%
+  mutate(fit = "without_sex")%>%
+  bind_rows(mutate(sleuth_mod_fourCondition$fits$full_batch$summary, 
+                   fit = "with_sex"))%>%
+  dplyr::select(target_id, fit, sigma_sq)%>%
+  pivot_wider(names_from = fit, values_from = sigma_sq)%>%
+  mutate(preferred_fit = ifelse(with_sex<without_sex, "with_sex",
+                                ifelse(without_sex<with_sex, "without_sex",
+                                       NA)))
+
+sex_fit_comparison_plot<-
+sex_fit_comparison_df%>%
+  arrange(preferred_fit)%>%
+  ggplot(aes(x=(without_sex), y = (with_sex)))+
+  geom_abline(slope = 1, intercept = 0, linetype="dashed")+
+  geom_point(aes(color = preferred_fit))+
+  ylab(expression(paste(sigma^{2}, "  with Sex term" )))+
+  xlab(expression(paste(sigma^{2}, " without Sex term" )))+
+  ggtitle("Effect of sex on model fit")+
+  theme_bw()+
+  coord_fixed(ratio = 1, 
+              xlim = range(c(sex_fit_comparison_df$without_sex, sex_fit_comparison_df$with_sex)), 
+              ylim =  range(c(sex_fit_comparison_df$without_sex, sex_fit_comparison_df$with_sex)))+
+  theme( plot.title = element_text(hjust=0.5), legend.position = "bottom")
+
+sex_fit_comparison_plot
+
+sex_fit_comparison_df%>%
+  group_by(preferred_fit)%>%
+  tally()%>%
+  mutate(`%` = n/sum(n))%>%
+  kable()%>%
+  kable_styling(bootstrap_options = "striped", full_width = F)
+```
+
+```{r echo=FALSE}
+# Combine and Save
+age_sex_fit_comparison_plot<- age_fit_comparison_plot + sex_fit_comparison_plot
+
+ggsave(plot = age_sex_fit_comparison_plot, 
+       filename = paste(fig.dir, "model_fit_comparison_age_sex.png", sep="/"), 
+       height=8, width = 8)
+```
+
+#### Wald tests to isolate effects of interest
+
+```{r}
+#---------------
+#  RSTR Effect
+#---------------
+
+# RSTR_TB vs LTBI_TB
+sleuth_mod_fourCondition <- sleuth_wt(sleuth_mod_fourCondition, 
+                                      which_beta = 'conditionRSTR_MEDIA',
+                                      'full_batch')
+
+# RSTR_MEDIA vs LTBI_MEDIA
+sleuth_mod_fourCondition<-sleuth_wt(sleuth_mod_fourCondition, 
+                                    which_beta = 'conditionRSTR_TB',
+                                    'full_2_batch')
+
+#---------------
+#  TB Effect
+#---------------
+#LTBI_TB vs  LTBI_MEDIA
+sleuth_mod_fourCondition <- sleuth_wt(sleuth_mod_fourCondition, 
+                                      which_beta = 'conditionLTBI_TB',
+                                      'full_batch')
+
+#  RSTR_TB vs RSTR_MEDIA
+sleuth_mod_fourCondition<-sleuth_wt(sleuth_mod_fourCondition, 
+                                    which_beta = 'conditionRSTR_TB',
+                                    'full_3_batch')
+
+#---------------
+#  Covariates
+#---------------
+# Sex
+sleuth_mod_fourCondition<-sleuth_wt(sleuth_mod_fourCondition, 
+                                    which_beta = 'M0_KCVSEXM', 
+                                    'full_batch')
+
+# Age
+sleuth_mod_fourCondition<-sleuth_wt(sleuth_mod_fourCondition, 
+                                    which_beta = 'KCHCA_AGE_YR_CURRENT',
+                                    'full_batch')
+```
+
+### Aggregate to Gene Level
+
+```{r message=FALSE}
+#---------------
+#  RSTR Effect
+#---------------
+
+# RSTR_TB vs LTBI_TB
+sleuth_mod_fourCondition_sleuth_table_tx_RSTR_TB_LTBI_TB<-
+  sleuth_results(sleuth_mod_fourCondition, "conditionRSTR_TB" ,
+                 test_type = 'wt', which_model="full_2_batch",
+                 show_all = FALSE, pval_aggregate = FALSE)
+
+sleuth_mod_fourCondition_sleuth_table_gene_RSTR_TB_LTBI_TB <-
+  sleuth_results(sleuth_mod_fourCondition, "conditionRSTR_TB",
+                 test_type = 'wt', which_model="full_2_batch",
+                 show_all = FALSE, pval_aggregate = TRUE)
+
+#RSTR_MEDIA vs LTBI_MEDIA
+sleuth_mod_fourCondition_sleuth_table_tx_RSTR_MEDIA_LTBI_MEDIA<-
+  sleuth_results(sleuth_mod_fourCondition, "conditionRSTR_MEDIA",
+                 test_type = 'wt', which_model="full_batch",  
+                 show_all = FALSE, pval_aggregate = FALSE)
+
+sleuth_mod_fourCondition_sleuth_table_gene_RSTR_MEDIA_LTBI_MEDIA <-
+  sleuth_results(sleuth_mod_fourCondition, "conditionRSTR_MEDIA", 
+                 test_type = 'wt', which_model="full_batch", 
+                 show_all = FALSE, pval_aggregate = TRUE)
+
+#---------------
+#  TB Effect
+#---------------
+
+# LTBI_TB vs  LTBI_MEDIA
+sleuth_mod_fourCondition_sleuth_table_tx_LTBI_TB_LTBI_MEDIA<-
+  sleuth_results(sleuth_mod_fourCondition, "conditionLTBI_TB",
+                 test_type = 'wt', which_model="full_batch",
+                 show_all = FALSE, pval_aggregate = FALSE)
+
+sleuth_mod_fourCondition_sleuth_table_gene_LTBI_TB_LTBI_MEDIA<-
+  sleuth_results(sleuth_mod_fourCondition, "conditionLTBI_TB",
+                 test_type = 'wt', which_model="full_batch",
+                 show_all = FALSE, pval_aggregate = TRUE)
+
+# RSTR_TB vs  RSTR_MEDIA
+sleuth_mod_fourCondition_sleuth_table_tx_RSTR_TB_RSTR_MEDIA<-
+  sleuth_results(sleuth_mod_fourCondition, "conditionRSTR_TB",
+                 test_type = 'wt', which_model="full_3_batch",
+                 show_all = FALSE, pval_aggregate = FALSE)
+
+sleuth_mod_fourCondition_sleuth_table_gene_RSTR_TB_RSTR_MEDIA<-
+  sleuth_results(sleuth_mod_fourCondition, "conditionRSTR_TB",
+                 test_type = 'wt', which_model="full_3_batch",
+                 show_all = FALSE, pval_aggregate = TRUE)
+
+#---------------
+#  Covariates
+#---------------
+
+# Age
+sleuth_mod_fourCondition_sleuth_table_tx_age<-
+  sleuth_results(sleuth_mod_fourCondition, "KCHCA_AGE_YR_CURRENT", 
+                 test_type = 'wt',which_model="full_batch", 
+                 show_all = FALSE, pval_aggregate = FALSE)
+
+sleuth_mod_fourCondition_sleuth_table_gene_age<-
+  sleuth_results(sleuth_mod_fourCondition, "KCHCA_AGE_YR_CURRENT", 
+                 test_type = 'wt',which_model="full_batch", 
+                 show_all = FALSE, pval_aggregate = TRUE)
+
+# Sex
+sleuth_mod_fourCondition_sleuth_table_tx_sex<-
+  sleuth_results(sleuth_mod_fourCondition, "M0_KCVSEXM", 
+                 test_type = 'wt',which_model="full_batch", 
+                 show_all = FALSE, pval_aggregate = FALSE)
+
+sleuth_mod_fourCondition_sleuth_table_gene_sex<-
+  sleuth_results(sleuth_mod_fourCondition, "M0_KCVSEXM", 
+                 test_type = 'wt',which_model="full_batch", 
+                 show_all = FALSE, pval_aggregate = TRUE)
+
+#------------------------------------
+#    Combine and format results
+#------------------------------------
+
+# TX
+sleuth_mod_fourCondition_sleuth_full_tx_results<-
+  mutate(sleuth_mod_fourCondition_sleuth_table_tx_RSTR_TB_LTBI_TB, 
+         model_term = "condition", effect="RSTR", 
+         reference_level = "LTBI_TB", group_2 = "RSTR_TB")%>%
+  full_join(
+    mutate(sleuth_mod_fourCondition_sleuth_table_tx_RSTR_MEDIA_LTBI_MEDIA, 
+           model_term = "condition", effect="RSTR", 
+           reference_level = "LTBI_MEDIA", group_2 = "RSTR_MEDIA"))%>%
+  full_join(mutate(sleuth_mod_fourCondition_sleuth_table_tx_LTBI_TB_LTBI_MEDIA, 
+                   model_term="condition", effect="TB", 
+                   reference_level="LTBI_MEDIA", group_2="LTBI_TB"))%>%
+  full_join(mutate(sleuth_mod_fourCondition_sleuth_table_tx_RSTR_TB_RSTR_MEDIA, 
+                   model_term="condition", effect="TB", 
+                   reference_level="RSTR_MEDIA", group_2="RSTR_TB"))%>%
+  full_join(
+    mutate(sleuth_mod_fourCondition_sleuth_table_tx_age, 
+           model_term = "KCHCA_AGE_YR_CURRENT", effect="AGE", 
+           reference_level = NA, group_2 = NA))%>%
+  full_join(
+    mutate(sleuth_mod_fourCondition_sleuth_table_tx_sex, 
+           model_term = "M0_KCVSEXM", effect="SEX", 
+           reference_level = "FEMALE", group_2 = "MALE"))
+
+# GENE
+sleuth_mod_fourCondition_sleuth_full_gene_results<-
+  mutate(sleuth_mod_fourCondition_sleuth_table_gene_RSTR_TB_LTBI_TB, 
+         model_term = "condition", effect="RSTR", 
+         reference_level = "LTBI_TB", group_2 = "RSTR_TB")%>%
+  full_join(
+    mutate(sleuth_mod_fourCondition_sleuth_table_gene_RSTR_MEDIA_LTBI_MEDIA, 
+           model_term = "condition", effect="RSTR", 
+           reference_level = "LTBI_MEDIA", group_2 = "RSTR_MEDIA"))%>%
+  full_join(mutate(sleuth_mod_fourCondition_sleuth_table_gene_LTBI_TB_LTBI_MEDIA, 
+                   model_term="condition", effect="TB", 
+                   reference_level="LTBI_MEDIA", group_2="LTBI_TB"))%>%
+  full_join(mutate(sleuth_mod_fourCondition_sleuth_table_gene_RSTR_TB_RSTR_MEDIA, 
+                   model_term="condition", effect="TB", 
+                   reference_level="RSTR_MEDIA", group_2="RSTR_TB"))%>%
+  full_join(
+    mutate(sleuth_mod_fourCondition_sleuth_table_gene_age, 
+           model_term = "KCHCA_AGE_YR_CURRENT", effect="AGE", 
+           reference_level = NA, group_2 = NA))%>%
+  full_join(
+    mutate(sleuth_mod_fourCondition_sleuth_table_gene_sex,
+           model_term = "M0_KCVSEXM", effect="SEX", 
+           reference_level = "FEMALE", group_2 = "MALE"))
+```
+
+### Summarize results
+
+```{r}
+# Transcripts
+sleuth_mod_fourCondition_sleuth_full_tx_results%>%
+  filter(effect=="RSTR")%>%
+  unite("contrast", c(group_2, reference_level), sep="_vs_")%>%
+  group_by(contrast)%>%
+  summarise(FDR.05 = length(which(qval<0.05)), FDR.1 = length(which(qval<0.1)),
+            FDR.2 = length(which(qval<0.2)), FDR.3 = length(which(qval<0.3)), 
+            FDR.4 = length(which(qval<0.4)), FDR.5 = length(which(qval<0.5)))%>%
+  kable(align=c("l","c","c", "c", "c", "c"),
+      col.names = c("Contrast",  "0.05", "0.1", "0.2","0.3","0.4","0.5")) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = FALSE) %>% 
+  add_header_above(c(" " = 1, " FDR <"=6))
+  
+
+# Genes
+
+sleuth_mod_fourCondition_sleuth_full_gene_results%>%
+  filter(effect=="RSTR")%>%
+  unite("contrast", c(group_2, reference_level), sep="_vs_")%>%
+  group_by(contrast)%>%
+  summarise(FDR.05 = length(which(qval<0.05)), FDR.1 = length(which(qval<0.1)),
+            FDR.2 = length(which(qval<0.2)), FDR.3 = length(which(qval<0.3)), 
+            FDR.4 = length(which(qval<0.4)), FDR.5 = length(which(qval<0.5)))%>%
+  kable(align=c("l","c","c", "c", "c", "c"),
+      col.names = c("Contrast",  "0.05", "0.1", "0.2","0.3","0.4","0.5")) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = FALSE) %>% 
+  add_header_above(c(" " = 1, "FDR <"=6))
+
+
+```
+
+## Save output
+
+```{r, eval=FALSE}
+# Aggregated results
+sleuth_mod_fourCondition_sleuth_full_tx_results%>%
+  write.csv(file=
+    paste(res.dir,"sleuth_mod_fourCondition_sleuth_table_tx_full_results.csv", sep="/"))
+
+sleuth_mod_fourCondition_sleuth_full_gene_results%>%
+  write.csv(file=
+    paste(res.dir,"sleuth_mod_fourCondition_sleuth_table_gene_full_results.csv", sep="/"))
+```
+
+# R session
+
+```{r}
+sessionInfo()
+```
+
