@@ -1,0 +1,1132 @@
+---
+title: "Visualize DET/DEGs"
+subtitle: "Sleuth Differential Expression"
+author: "Max Segnitz"
+output:
+  html_document:
+    toc: yes
+    toc_float:
+      collapsed: no
+date: "version `r format(Sys.time(), '%B %d, %Y')`"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+# Wrangling and plotting
+library(tidyverse)
+library(ggrepel)
+# library(patchwork)
+# library(RColorBrewer)
+
+# Data access/import
+library(rtracklayer) # For GTF import
+
+# Load custom functions
+`%notin%`<-Negate(`%in%`)
+source("https://raw.githubusercontent.com/rmsegnitz/Bioinformatics_Tools/master/R_functions/sleuth_subset_sleuth_object.R")
+```
+
+# Load data
+## GENCODE reference
+
+```{r}
+# Load GTF annotation
+gencode_gtf<-rtracklayer::import("data_clean/gencode.v34.annotation.gtf.gz")
+gtf_df<-as.data.frame(gencode_gtf) # convert to dataframe for ease of handling.
+```
+
+## Expression
+
+```{r}
+# Set SO object and gene list
+so_object<-readRDS(
+  "data_clean/sleuth_import_discovery_and_validation_group_filter_count05_group60_normalized.rds")
+
+### Drop repeated samples; Drops re-sequenced samples as established in QC script.
+# Establish samples to retain
+keep_samples<-
+  so_object$sample_to_covariates%>%
+  filter(sleuth_drop=="KEEP")%>%
+  dplyr::select(sample)%>%
+  unlist()
+
+# Subset Sleuth Imports
+so_object<-subset_sleuth_samples(so_object, samples=keep_samples)
+
+# Define general samples-to-covariates
+samples_to_covariates_full<-so_object$sample_to_covariates%>%
+  mutate(condition=factor(condition, levels=c("LTBI_MEDIA", "RSTR_MEDIA", "LTBI_TB", "RSTR_TB")))%>%
+  mutate(RSTR=factor(RSTR, levels=c("LTBI", "RSTR")))%>%
+  mutate(TB=factor(TB, levels=c("MEDIA", "TB")))
+
+so_object$sample_to_covariates<-samples_to_covariates_full
+```
+
+## Model results
+
+```{r}
+# Results to visualize
+sleuth_results_tx<-
+  read.csv("results/sleuth/sleuth_mod_fourCondition_sleuth_table_tx_full_results.csv", 
+           row.names = "X")
+
+sleuth_results_gene<-
+  read.csv("results/sleuth/sleuth_mod_fourCondition_sleuth_table_gene_full_results.csv", 
+           row.names = "X")
+```
+
+Some tx have multiple ENST Ids per transcript name and this causes problems downstream. 
+Subset to only those with clean annotations and handle others separately
+
+```{r}
+tx_genes.of.interest<-
+  sleuth_results_tx%>%
+  filter(effect=="RSTR" & qval<0.05)%>%
+  dplyr::select(ext_gene)%>%
+  left_join(dplyr::select(gtf_df, gene_name, transcript_id, transcript_name), 
+            by=c("ext_gene"="gene_name"))%>%
+  distinct()%>%
+  group_by(ext_gene)%>%
+  summarize(n_transcript_id=length(unique(transcript_id)),
+            n_transcript_name=length(unique(transcript_name)))
+
+tx_genes.of.interest_clean<-
+  tx_genes.of.interest%>%
+  filter(n_transcript_id==n_transcript_name)%>%
+  dplyr::select(ext_gene)%>%
+  unlist()%>%
+  as.character()
+
+tx_genes.of.interest_other<-
+  tx_genes.of.interest%>%
+  filter(n_transcript_id>n_transcript_name)%>%
+  dplyr::select(ext_gene)%>%
+  unlist()%>%
+  as.character()
+
+
+ag_genes.of.interest<-
+sleuth_results_gene%>%
+  filter(effect=="RSTR" & qval<0.05)%>%
+  dplyr::select(ext_gene)%>%
+  left_join(dplyr::select(gtf_df, gene_name, transcript_id, transcript_name), 
+            by=c("ext_gene"="gene_name"))%>%
+  distinct()%>%
+  group_by(ext_gene)%>%
+  summarize(n_transcript_id=length(unique(transcript_id)),
+            n_transcript_name=length(unique(transcript_name)))
+
+ag_genes.of.interest_clean<-
+ag_genes.of.interest%>%
+  filter(n_transcript_id==n_transcript_name)%>%
+  dplyr::select(ext_gene)%>%
+  unlist()%>%
+  as.character()
+
+ag_genes.of.interest_other<-
+ag_genes.of.interest%>%
+  filter(n_transcript_id>n_transcript_name)%>%
+  dplyr::select(ext_gene)%>%
+  unlist()%>%
+  as.character()
+```
+
+## Plotting parameters
+
+```{r}
+#Genes to plot
+plotting_genes_of_interest_clean<-unique(c(tx_genes.of.interest_clean, ag_genes.of.interest_clean))
+```
+
+```{r}
+#Colors
+condition_colors<-c("LTBI_MEDIA"="lightblue", "LTBI_TB"="darkblue", 
+                    "RSTR_MEDIA" = "salmon", "RSTR_TB"="red")
+```
+
+# Sleuth Results
+## Volcano Plots
+
+```{r}
+# Set new figure directory
+fig.dir<-"figs/sleuth_DE/volcano_plots"
+```
+
+```{r echo=FALSE}
+#----------------
+# Create Plots
+#----------------
+
+# TB
+volcano_tx_TB_RSTR_v_LTBI_3dim_df<-
+  sleuth_results_tx%>%
+  filter(model_term=="condition" & effect=="RSTR")%>%
+  filter(reference_level == "LTBI_TB")%>%
+  mutate(p_group = ifelse(qval<0.001, "FDR < 0.001",
+                                ifelse(qval<0.01 & qval >=0.001, "FDR < 0.01",
+                                       ifelse(qval<0.05 & qval >=0.01, "FDR < 0.05", 
+                                              ifelse(qval<0.2 & qval>=0.05,"FDR < 0.20", 
+                                                     "non significant")))))%>%
+  arrange(-qval)
+
+#-------- PLOTS------------
+
+volcano_tx_TB_RSTR_v_LTBI<-
+  volcano_tx_TB_RSTR_v_LTBI_3dim_df%>%
+  ggplot(aes(y=-log10(qval), x=b, label=ext_gene))+
+  geom_point(alpha=0.5)+
+  geom_vline(xintercept = 0, linetype="dashed", color="grey")+
+  geom_hline(yintercept = -log10(0.05), linetype="dashed", color="red")+
+  geom_hline(yintercept = -log10(0.2), linetype="dashed", color="red")+
+  ylab("-log10(qval)")+
+  xlab("Bias Adj. Fold Change")+
+  ggtitle("TB \nRSTR vs LTBI")+
+  theme_bw()+
+  theme(aspect.ratio = 1,
+        plot.title = element_text(hjust=0.5),
+        legend.title = element_blank(), 
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+
+volcano_tx_TB_RSTR_v_LTBI_labs<-
+  volcano_tx_TB_RSTR_v_LTBI+
+  geom_text_repel(data=head(arrange(volcano_tx_TB_RSTR_v_LTBI_3dim_df, qval), 20), 
+                  max.overlaps = 20, seed=32)
+  
+
+volcano_tx_TB_RSTR_v_LTBI_3dim<-
+  volcano_tx_TB_RSTR_v_LTBI_3dim_df%>%
+  
+  ggplot(aes(y=log2(mean_obs), x=b, label=ext_gene))+
+  geom_point(alpha=1, aes(color=p_group))+
+  scale_color_manual(values=c("non significant"="grey", 
+                              "FDR < 0.20" = "yellow",
+                              "FDR < 0.05" = "darkorange1",
+                              "FDR < 0.01" = "red", "FDR < 0.001"="darkred"))+
+  
+  geom_text_repel(data=head(arrange(filter(volcano_tx_TB_RSTR_v_LTBI_3dim_df, b > 0), qval), 25), # Add repelled labels for top 25 + DE genes by b.
+    nudge_x       = 2 - head(arrange(filter(volcano_tx_TB_RSTR_v_LTBI_3dim_df, b > 0), qval), 25)$b, # And align labels to right axis.
+    segment.size  = 0.2,
+    angle        = 0,
+    hjust=1,
+    segment.color = "grey50",
+    direction     = "y",
+    show.legend = FALSE,
+    max.overlaps = Inf
+  ) +
+  
+  geom_text_repel(data=head(arrange(filter(volcano_tx_TB_RSTR_v_LTBI_3dim_df, b < 0), qval), 25), # Add repelled labels for top 25 + DE genes by b.
+    nudge_x       = -2 - head(arrange(filter(volcano_tx_TB_RSTR_v_LTBI_3dim_df, b < 0), qval), 25)$b, # And align labels to right axis.
+    segment.size  = 0.2,
+    angle        = 0,
+    segment.color = "grey50",
+    direction     = "y",
+    show.legend = FALSE
+  ) +
+  
+  
+  geom_vline(xintercept = 0)+
+  ylab("Mean Log2(TPM)")+
+  xlab("Bias Adj. Fold Change")+
+  ggtitle("TB \nRSTR vs LTBI")+
+  #scale_y_continuous(limits = c(0,4), breaks=seq(0,4,1))+
+  scale_x_continuous(limits = c(-2.25,2.25), breaks = seq(-2,2,1))+
+  theme_bw()+
+  guides(color = guide_legend(override.aes = list(alpha=1)))+
+  theme(aspect.ratio = 1,
+        plot.title = element_text(hjust=0.5),
+        legend.title = element_blank(), 
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+
+#-------------------------------------------
+
+# MEDIA
+volcano_tx_MEDIA_RSTR_v_LTBI_3dim_df<-
+  sleuth_results_tx%>%
+  filter(model_term=="condition" & effect =="RSTR")%>%
+  filter(reference_level == "LTBI_MEDIA")%>%
+  mutate(p_group = ifelse(qval<0.001, "FDR < 0.001",
+                                ifelse(qval<0.01 & qval >=0.001, "FDR < 0.01",
+                                       ifelse(qval<0.05 & qval >=0.01, "FDR < 0.05", 
+                                              ifelse(qval<0.2 & qval>=0.05,"FDR < 0.20", 
+                                                     ifelse(qval<0.3 & qval>=0.2,"FDR < 0.30",
+                                                            "non significant"))))))%>%
+  arrange(-qval)
+
+volcano_tx_MEDIA_RSTR_v_LTBI<-
+  volcano_tx_MEDIA_RSTR_v_LTBI_3dim_df%>%
+  ggplot(aes(y=-log10(qval), x=b, label=ext_gene))+
+  geom_point(alpha=0.5)+
+  geom_vline(xintercept = 0, linetype="dashed", color="grey")+
+  geom_hline(yintercept = -log10(0.05), linetype="dashed", color="red")+
+  geom_hline(yintercept = -log10(0.2), linetype="dashed", color="red")+
+  ylab("-log10(qval)")+
+  xlab("Bias Adj. Fold Change")+
+  ggtitle("MEDIA \nRSTR vs LTBI")+
+  theme_bw()+
+  theme(aspect.ratio = 1,
+        plot.title = element_text(hjust=0.5),
+        legend.title = element_blank(), 
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+
+volcano_tx_MEDIA_RSTR_v_LTBI_labs<-
+  volcano_tx_MEDIA_RSTR_v_LTBI+
+  geom_text_repel(
+    data=head(arrange(volcano_tx_MEDIA_RSTR_v_LTBI_3dim_df, qval), 20), 
+    max.overlaps = 20, seed=32)
+
+volcano_tx_MEDIA_RSTR_v_LTBI_3dim<-
+  volcano_tx_MEDIA_RSTR_v_LTBI_3dim_df%>%
+  mutate(label=ifelse(qval<0.3, ext_gene, NA))%>%
+  ggplot(aes(y=log2(mean_obs), x=b, label=label))+
+  geom_point(alpha=1, aes(color=p_group))+
+  scale_color_manual(values=c("non significant"="grey",
+                               "FDR < 0.30" = "black",
+                              "FDR < 0.20" = "yellow",
+                              "FDR < 0.05" = "darkorange1",
+                              "FDR < 0.01" = "red", "FDR < 0.001"="darkred"))+
+  
+ ggrepel::geom_text_repel(seed=32, max.overlaps = Inf)+
+  geom_vline(xintercept = 0)+
+  ylab("Mean Log2(TPM)")+
+  xlab("Bias Adj. Fold Change")+
+  ggtitle("MEDIA \nRSTR vs LTBI")+
+  theme_bw()+
+  guides(color = guide_legend(override.aes = list(alpha=1)))+
+  theme(aspect.ratio = 1,
+        plot.title = element_text(hjust=0.5),
+        legend.title = element_blank(), 
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+```
+
+```{r echo=FALSE}
+## MEDIA
+volcano_tx_MEDIA_RSTR_v_LTBI_3dim
+volcano_tx_MEDIA_RSTR_v_LTBI
+volcano_tx_MEDIA_RSTR_v_LTBI_labs
+
+### TB
+volcano_tx_TB_RSTR_v_LTBI_3dim
+volcano_tx_TB_RSTR_v_LTBI
+volcano_tx_TB_RSTR_v_LTBI_labs
+```
+
+```{r echo=FALSE, warning=FALSE}
+#------------
+# Save plots
+#------------
+
+ggsave(plot = volcano_tx_TB_RSTR_v_LTBI_3dim, 
+       filename = paste(fig.dir, "volcano_plot_3d_DETs_TB_RSTR_LTBI_labeled.png", sep="/"),
+       width = 7, height = 7, dpi = 300)
+
+ggsave(plot = volcano_tx_TB_RSTR_v_LTBI, 
+       filename = paste(fig.dir, "volcano_plot_DETs_TB_RSTR_LTBI_unlabeled.png", sep="/"),
+       width = 7, height = 7, dpi = 300)
+
+ggsave(plot = volcano_tx_TB_RSTR_v_LTBI_labs, 
+       filename = paste(fig.dir, "volcano_plot_DETs_TB_RSTR_LTBI_top20labeled.png", sep="/"), 
+       width = 7, height = 7, dpi = 300)
+
+ggsave(plot = volcano_tx_MEDIA_RSTR_v_LTBI_3dim, 
+       filename = paste(fig.dir, "volcano_plot_3d_DETs_MEDIA_RSTR_LTBI_labeled.png", sep="/"),
+       width = 7, height = 7, dpi = 300)
+
+ggsave(plot = volcano_tx_MEDIA_RSTR_v_LTBI, 
+       filename = paste(fig.dir, "volcano_plot_DETs_MEDIA_RSTR_LTBI_unlabeled.png", sep="/"), 
+       width = 7, height = 7, dpi = 300)
+
+ggsave(plot = volcano_tx_MEDIA_RSTR_v_LTBI_labs, 
+       filename = paste(fig.dir, "volcano_plot_DETs_MEDIA_RSTR_LTBI_top20labeled.png", sep="/"), 
+       width = 7, height = 7, dpi = 300)
+```
+
+## Which genes identified as DETs are NOT DEGs?
+
+```{r echo=FALSE}
+DETs_PC_hgnc<-
+  sleuth_results_tx%>%
+  filter(effect=="RSTR")%>%
+  filter(reference_level %in% levels(samples_to_covariates_full$condition))%>%
+  filter(qval<0.2)%>%
+  dplyr::select(ext_gene)%>%
+  distinct()%>%
+  unlist()
+
+DEGs_PC_hgnc<-
+  sleuth_results_gene%>%
+  filter(effect=="RSTR")%>%
+  filter(reference_level %in% levels(samples_to_covariates_full$condition))%>%
+  filter(qval<0.2)%>%
+  dplyr::select(ext_gene)%>%
+  distinct()%>%
+  unlist()
+
+sleuth_results_tx%>%
+  filter(effect=="RSTR")%>%
+  filter(reference_level %in% levels(samples_to_covariates_full$condition))%>%
+  filter(qval<0.2)%>%
+  mutate(not_in_DEG = ext_gene %notin% DEGs_PC_hgnc)%>%
+  dplyr::select(not_in_DEG)%>%
+  unlist()%>%
+  which()%>%
+  length()
+
+results_comparison_DETgene_DEG_venn<- venn::venn(list("Genes with DETs"=DETs_PC_hgnc, 
+                                         "DEGs"=DEGs_PC_hgnc))
+exclusive_DETs<-
+DETs_PC_hgnc[which(DETs_PC_hgnc %notin% DEGs_PC_hgnc)]
+```
+
+Highlight "exclusive DETs" in  plots
+
+```{r echo=FALSE, warning=FALSE}
+# Visualize estimates for Tb vs Media in RSTR & LTBI
+TB_v_MEDIA_FC_comparison<-
+sleuth_results_tx%>%
+  filter(effect=="RSTR")%>%
+  filter(model_term =="condition")%>%
+  unite("contrast", reference_level, group_2, sep = "_")%>%
+  dplyr::select(target_id, ext_gene, contrast, qval, b)%>%
+  pivot_wider(names_from = contrast, values_from=c(qval, b))%>%
+  mutate(significance = ifelse(qval_LTBI_MEDIA_RSTR_MEDIA<0.2 & 
+                                 qval_LTBI_TB_RSTR_TB>=0.2, "Media Only", 
+                             ifelse(qval_LTBI_MEDIA_RSTR_MEDIA>=0.2 & 
+                                      qval_LTBI_TB_RSTR_TB<0.2, "TB Only",
+                                    ifelse(qval_LTBI_MEDIA_RSTR_MEDIA<0.2 &
+                                             qval_LTBI_TB_RSTR_TB<0.2, 
+                                           "Both Conditions", 
+                                           "No Contrasts"))))%>%
+  mutate(significance = factor(significance, 
+                               levels = c("No Contrasts", "Media Only", 
+                                          "TB Only", "Both Conditions")))%>%
+  arrange(significance)%>%
+  mutate(label = ifelse(significance !="No Contrasts" & 
+                          ext_gene %in% exclusive_DETs, ext_gene, NA))%>%
+  
+  ggplot(aes(x=b_LTBI_MEDIA_RSTR_MEDIA, y=b_LTBI_TB_RSTR_TB, label = label))+
+  geom_point(aes(color = significance))+
+  scale_color_manual(values = c("No Contrasts" = "grey", 
+                                "Media Only" = "blue", 
+                                "TB Only" = "red", 
+                                "Both Conditions" = "purple"))+
+  geom_abline(slope = 1, intercept = 0, linetype="dashed")+
+  geom_abline(slope = -1, intercept = 0, linetype="dashed")+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)+
+  ggrepel::geom_text_repel(max.overlaps = Inf)+
+  ggtitle("RSTR - LTBI Fold Change")+
+  xlab("Fold Change \nin Media")+
+  ylab("Fold Change \n in TB")+
+  labs(color = "FDR<0.2")+
+  theme_bw()+
+  theme(aspect.ratio = 1, plot.title = element_text(hjust=0.5))
+
+TB_v_MEDIA_FC_comparison
+
+ggsave(plot = TB_v_MEDIA_FC_comparison, 
+       filename =paste(fig.dir, "TB_v_MEDIA_FC_comparison.png",sep="/"), 
+       height = 12, width = 12, dpi=300)
+```
+
+# Transcript plots
+## Transcript expression
+
+Visualize transcript level expression across treatment groups for all genes with gene-level FDR<0.2.
+
+```{r}
+# Set directory to store plots
+fig.dir<-"figs/sleuth_DE/tx_expression"
+```
+
+```{r eval=FALSE, echo=FALSE, message=FALSE}
+# Run plotting for each gene.
+for(i in plotting_genes_of_interest_clean){
+  print(paste("Plot", match(i, plotting_genes_of_interest_clean), 
+              "of", length(plotting_genes_of_interest_clean)))
+  # Pull GTF mapping
+  transcript_gtf<-
+    gtf_df%>%
+    filter(gene_name==i)%>%
+    dplyr::select(transcript_id, transcript_name)%>%
+    distinct()
+  
+  # Assemble df for plotting
+  plot_df<-
+    filter(so_object$target_mapping, ext_gene ==i)%>%
+    left_join(so_object$obs_norm_filt, by = "target_id")%>%
+    right_join(so_object$sample_to_covariates, by="sample")%>%
+    left_join(transcript_gtf, by=c("target_id"="transcript_id"))%>%
+    mutate(transcript_name=factor(transcript_name))%>%
+    mutate(log_tpm = log2(tpm+1e-30))%>%
+    arrange(transcript_name)%>%
+    group_by(transcript_name)%>%
+    mutate(mean_tpm=mean(tpm, na.rm=TRUE), max_tpm=max(tpm), 
+           log_tpm_whisker_u = quantile(log_tpm, na.rm=TRUE)[4] + 1.5*IQR(log_tpm, na.rm=TRUE),
+           log_tpm_whisker_l = quantile(log_tpm, na.rm=TRUE)[3] - 1.5*IQR(log_tpm, na.rm=TRUE))%>%
+    ungroup()
+  
+  # reorder target levels by their mean expression in tpm
+  plot_df$transcript_name<-reorder(plot_df$transcript_name, -plot_df$mean_tpm)
+  
+  # Assemble df for annotations
+  annotation_df<-sleuth_results_tx%>%
+    filter(effect=="RSTR")%>%
+    filter(ext_gene == i)%>%
+    mutate(condition = ifelse(str_detect(reference_level, "MEDIA"), "MEDIA",
+                              ifelse(str_detect(reference_level, "TB"), "TB", NA)))%>%
+    left_join(transcript_gtf, by=c("target_id"="transcript_id"))%>%
+    dplyr::select(transcript_name, ext_gene, pval, qval, condition)%>%
+    pivot_wider(names_from = condition, values_from = c(pval, qval))%>%
+    left_join(dplyr::select(plot_df, transcript_name, mean_tpm, max_tpm)%>%distinct(),
+              by = "transcript_name")%>%
+    mutate(annotation_MEDIA = ifelse(qval_MEDIA>=0.001, 
+                                     paste("FDR = ", round(qval_MEDIA, 3)), "FDR<0.001"),
+           annotation_TB = ifelse(qval_TB>=0.001, 
+                                  paste("FDR = ", round(qval_TB, 3)), "FDR<0.001"))%>%
+    mutate(y1_TB=log2(max_tpm)*0.88, 
+           y2_TB=log2(max_tpm)*0.9,
+           x1_TB=3, 
+           x2_TB=4, 
+           y1_MEDIA=log2(max_tpm)*0.73, 
+           y2_MEDIA=log2(max_tpm)*0.75,
+           x1_MEDIA=1, 
+           x2_MEDIA=2, 
+           x_ann_TB=3.5, 
+           y_ann_TB=log2(max_tpm)*0.94, 
+           x_ann_MEDIA=1.5, 
+           y_ann_MEDIA=log2(max_tpm)*0.79)%>%
+    mutate(transcript_name = factor(transcript_name, 
+                                    levels = levels(plot_df$transcript_name)))%>%
+    distinct()
+  
+  # Determine plot size for saving
+  plot_cols<-ceiling(sqrt(nrow(annotation_df)))
+  plot_rows<-ceiling(nrow(annotation_df)/plot_cols)
+  
+  # Find gene level FDRs
+  gene_q_i_TB<-
+    filter(sleuth_results_gene, effect=="RSTR" & 
+             reference_level == "LTBI_TB" & ext_gene==i)$qval
+  
+  gene_q_i_MEDIA<-
+    filter(sleuth_results_gene, effect=="RSTR" & 
+             reference_level == "LTBI_MEDIA" & ext_gene==i)$qval
+  
+  # Plot expression for all tx within each gene
+  geneplot_tx<-
+    plot_df%>%
+    ggplot(aes(y=log2(tpm + 0.01), x=condition, fill = condition))+
+    geom_boxplot()+
+    scale_fill_manual(values=condition_colors)+
+    ggtitle(i, subtitle = paste("Gene Level RSTR vs LTBI TB, FDR = ", 
+                                scales::scientific(gene_q_i_TB, 3),
+                                "\nGene Level RSTR vs LTBI MEDIA, FDR = ",
+                                scales::scientific(gene_q_i_MEDIA, 3)))+
+    xlab("")+
+    
+    geom_text(data = annotation_df, aes(x = x_ann_MEDIA ,  y = y_ann_MEDIA, label = annotation_MEDIA), inherit.aes = FALSE) +
+    geom_segment(data = annotation_df, aes(x = x1_MEDIA, xend = x1_MEDIA, 
+                                           y = y1_MEDIA, yend = y2_MEDIA),
+                 colour = "black", inherit.aes = FALSE) +
+    geom_segment(data = annotation_df, aes(x = x2_MEDIA, xend = x2_MEDIA, 
+                                           y = y1_MEDIA, yend = y2_MEDIA),
+                 colour = "black", inherit.aes = FALSE) +
+    geom_segment(data = annotation_df, aes(x = x1_MEDIA, xend = x2_MEDIA, 
+                                           y = y2_MEDIA, yend = y2_MEDIA),
+                 colour = "black", inherit.aes = FALSE)+
+    
+    geom_text(data = annotation_df, aes(x = x_ann_TB ,  y = y_ann_TB, label = annotation_TB),inherit.aes = FALSE) +
+    geom_segment(data = annotation_df, aes(x = x1_TB, xend = x1_TB, 
+                                           y = y1_TB, yend = y2_TB),
+                 colour = "black", inherit.aes = FALSE) +
+    geom_segment(data = annotation_df, aes(x = x2_TB, xend = x2_TB, 
+                                           y = y1_TB, yend = y2_TB),
+                 colour = "black", inherit.aes = FALSE) +
+    geom_segment(data = annotation_df, aes(x = x1_TB, xend = x2_TB, 
+                                           y = y2_TB, yend = y2_TB),
+                 colour = "black", inherit.aes = FALSE)+
+    
+    theme_bw()+
+    theme(aspect.ratio = 1,
+          panel.grid = element_blank(), 
+          axis.text.x = element_blank(), 
+          plot.title = element_text(hjust=0.5))+
+    facet_wrap(~transcript_name, scales = "free_y", nrow = plot_rows, ncol = plot_cols)
+  
+  # Set plot size
+  plot_width = ifelse(plot_rows*plot_cols>6, 2.5*plot_cols, 6)
+  plot_height = ifelse(plot_rows*plot_cols>6, 2.5*plot_rows,  6)
+  
+  # Name plot
+  plot.name<-paste(fig.dir, paste(i, "_Tx_tpm_4condition.png", sep=""), sep="/")
+  
+  # Save plot
+  ggsave(plot = geneplot_tx, filename = plot.name, dpi=300, 
+         height =plot_height, width = plot_width, limitsize = FALSE)
+  
+}
+```
+
+## Transcript proportion
+
+```{r}
+# Set directory to store plots
+fig.dir<-"figs/sleuth_DE/tx_proportion"
+```
+
+```{r eval=FALSE, echo=FALSE, message=FALSE}
+for(i in plotting_genes_of_interest_clean){
+  print(paste("Plot", match(i, plotting_genes_of_interest_clean), 
+              "of", length(plotting_genes_of_interest_clean)))
+  # Assemble df for plotting
+  plot_df<-
+    filter(so_object$target_mapping, ext_gene ==i)%>%
+    left_join(so_object$obs_norm_filt, by = "target_id")%>%
+    right_join(so_object$sample_to_covariates, by="sample")%>%
+    arrange(target_id)%>%
+    group_by(sample)%>%
+    mutate(prop_tpm = tpm/sum(tpm))%>%
+    group_by(target_id)%>%
+    mutate(mean_prop_tpm=mean(prop_tpm), max_prop_tpm=max(prop_tpm))
+  
+  # reorder target levels by their mean expression in tpm
+  plot_df$target_id<-reorder(plot_df$target_id, -plot_df$mean_prop_tpm)
+  
+  # Assemble df for annotations
+  annotation_df<-sleuth_results_tx%>%
+    filter(effect=="RSTR")%>%
+    filter(ext_gene == i)%>%
+    mutate(condition = ifelse(str_detect(reference_level, "MEDIA"), "MEDIA",
+                              ifelse(str_detect(reference_level, "TB"), "TB", NA)))%>%
+    dplyr::select(target_id, ext_gene, pval, qval, condition)%>%
+    pivot_wider(names_from = condition, values_from = c(pval, qval))%>%
+    left_join(dplyr::select(plot_df, target_id, mean_prop_tpm, max_prop_tpm),
+              by = "target_id")%>%
+    distinct()%>%
+    mutate(annotation_MEDIA = ifelse(qval_MEDIA>=0.2, "", 
+                                     ifelse(qval_MEDIA<0.2 & qval_MEDIA>=0.1, "0.2", 
+                                            ifelse(qval_MEDIA<0.1 & qval_MEDIA>=0.05, "0.1",
+                                                   ifelse(qval_MEDIA<0.05 & qval_MEDIA>=0.01, "*",
+                                                          ifelse(qval_MEDIA<0.01 & qval_MEDIA>=0.001, "**",
+                                                                 ifelse(qval_MEDIA<0.001, "***", 
+                                                                        NA)))))),
+           annotation_TB = ifelse(qval_TB>=0.2, "", 
+                                  ifelse(qval_TB<0.2 & qval_TB>=0.1, "0.2", 
+                                         ifelse(qval_TB<0.1 & qval_TB>=0.05, "0.1",
+                                                ifelse(qval_TB<0.05 & qval_TB>=0.01, "*",
+                                                       ifelse(qval_TB<0.01 & qval_TB>=0.001, "**",
+                                                              ifelse(qval_TB<0.001, "***",
+                                                                     NA)))))))%>%
+    
+    mutate(y_ann = max_prop_tpm*1.1)%>%
+    mutate(target_id = factor(target_id, levels = levels(plot_df$target_id)))%>%
+    dplyr::select(target_id, contains("annotation"), y_ann)%>%
+    pivot_longer(cols = c(annotation_MEDIA, annotation_TB))%>%
+    mutate(TB= ifelse(str_detect(name, "MEDIA"), "MEDIA", 
+                      ifelse(str_detect(name, "TB"), "TB", NA)))%>%
+    mutate(RSTR = "RSTR")%>%
+    ungroup()%>%
+    mutate(x_ann = as.numeric(target_id))
+  
+  # Fill in missing info for TB
+  annotation_df<-bind_rows(annotation_df, mutate(annotation_df, RSTR="LTBI", value = ""))
+  
+  
+  # Make plot
+  Tx_proportion_plot<-
+    plot_df%>%
+    group_by(sample)%>%
+    mutate(tpm_prop = tpm/sum(tpm))%>%
+    ggplot(aes(x=target_id, y=tpm_prop, color=target_id, fill = target_id))+
+    geom_boxplot(alpha=0.5)+
+    geom_text(data=annotation_df,aes(label = value, y=y_ann, x=x_ann), color = "black")+
+    ylab("Proportion TPM")+
+    xlab("Transcript")+
+    ggtitle(paste0(i, " Transcript Composition"))+
+    labs(color = "Transcript ID", fill = "Transcript ID")+
+    facet_grid(rows = vars(TB), cols = vars(RSTR))+
+    theme_bw()+
+    theme(
+      strip.background = element_blank(),
+      axis.text.x = element_blank(),
+      panel.grid = element_blank(), 
+      plot.title = element_text(hjust=0.5))
+  
+  # Set plot size
+  plot_width = ifelse(length(unique(plot_df$target_id))<5, 5,
+                      length(unique(plot_df$target_id))*(2/3))
+  plot_height = ifelse(plot_width<=8, plot_width, 8)
+  
+  # Name plot
+  plot.name<-paste(fig.dir, paste(i, "_Tx_tpm_proportions_4condition.png", sep=""), sep="/")
+  
+  # Save plot
+  ggsave(plot = Tx_proportion_plot, filename = plot.name, dpi=300, 
+         height =plot_height, width = plot_width)
+}
+```
+
+## Transcript annotation
+
+Integrated plotting of the transcript level gene models (transcript structure and annotation).
+
+```{r}
+# Set directory to store plots
+fig.dir<- "./figs/sleuth_DE/tx_annotation"
+```
+
+```{r echo=FALSE, eval=FALSE, message=FALSE}
+# Set pallete for transcript Biotype
+plotting_biotypes<-
+  gtf_df%>%
+  filter(gene_name %in% plotting_genes_of_interest_clean & !is.na(transcript_type))%>%
+  dplyr::select(transcript_type)%>%
+  unlist()%>%
+  unique()%>%
+  str_replace_all("_", " ")
+
+biotype_colors<-c("protein coding" = "#CB2F0B",
+                  "retained intron" = "#9116D9", 
+                  "processed transcript" = "#E99C20", 
+                  "nonsense mediated decay" = "#009FB8", 
+                  "non stop decay" = "#1C4376", 
+                  "TEC" = "#27A557",
+                  "misc RNA" = "#05e5fa",
+                  "transcribed unprocessed pseudogene"="#faf205",
+                  "transcribed unitary pseudogene" ="#f58cc0")
+#-----------------------------
+#  Plot Transcript Structure
+#-----------------------------
+for(i in plotting_genes_of_interest_clean){
+  print(paste("Plot", match(i, plotting_genes_of_interest_clean), 
+              "of", length(plotting_genes_of_interest_clean)))
+  # Plot Tx Annotations manually
+  target_gene<-i
+  
+  gtf_sub<-filter(gtf_df, gene_name==target_gene)%>%
+    filter(transcript_id %in% unique(sleuth_results_tx$target_id) | is.na(transcript_id))%>%
+    mutate(transcript_type = str_replace_all(transcript_type, "_", " "))%>%
+    mutate(transcript_type = factor(transcript_type, levels = names(biotype_colors)))
+  
+  
+  gtf_sub_gene_frame<-
+    data.frame(transcript_id=unique(gtf_sub$transcript_id), 
+               start = filter(gtf_sub, is.na(transcript_id))$start, 
+               end = filter(gtf_sub, is.na(transcript_id))$end)
+  
+  gtf_sub_tx_frame<-gtf_sub%>%
+    filter(!is.na(transcript_id))%>%
+    filter(!is.na(exon_number))%>%
+    group_by(transcript_id)%>%
+    summarise(start= min(start), end = max(end))%>%
+    left_join(dplyr::select(gtf_sub, transcript_id, transcript_type, transcript_name))%>%
+    distinct()%>%
+    group_by(transcript_id)%>%
+    mutate(label_position = start + (end-start)*1.01)
+  
+  panel_breaks<-unique(c(gtf_sub$start, gtf_sub$end))
+  
+  #---------------------------------
+  # TX structure plot by annotation
+  #---------------------------------
+  annotation_colors<-c("CDS" = "#2e3a44", "exon" =  "#31ab8e" , 
+                       "start_codon" = "#2c31da", "stop_codon" = "#ec5305", 
+                       UTR ="#ece347")
+  
+  tx_annotation_plot<-
+    ggplot(data=gtf_sub_tx_frame, aes(y=transcript_name))+
+    geom_segment(aes(x=start, xend=end, y=transcript_name, yend=transcript_name), 
+                 size=3, color="lightgrey")+
+    geom_segment(data = filter(gtf_sub, !is.na(transcript_name) & 
+                                 !is.na(exon_number) & 
+                                 type %notin% c("start_codon", "stop_codon")),
+                 aes(x=start, xend=end, y=transcript_name, yend=transcript_name, 
+                     color = type), size = 5)+
+    geom_point(data = filter(gtf_sub, !is.na(transcript_name) & 
+                               !is.na(exon_number) & 
+                               type %in% c("start_codon", "stop_codon")),
+               aes(x=start, y=transcript_name, color = type),shape = 8)+
+    
+    scale_color_manual(values = annotation_colors)+
+    geom_text(data=gtf_sub_tx_frame, aes(y=transcript_name, x=label_position,
+                                         label=transcript_type),hjust=0)+
+    ggtitle(paste0(i, "\nTranscript Annotation"))+
+    ylab("Transcript")+
+    xlab(paste0(str_replace(unique(gtf_sub$seqnames), "chr", "Chromosome "), 
+                " Position (bp)"))+
+    labs(color = "Annotation")+
+    scale_x_continuous(
+      limits = c(min(gtf_sub_tx_frame$start),
+                 min(gtf_sub_tx_frame$start)+(max(gtf_sub_tx_frame$end)-min(gtf_sub_tx_frame$start))*1.25),
+      minor_breaks = panel_breaks)+
+    theme_bw()+
+    theme(panel.grid.major.y = element_blank(), panel.grid.major.x = element_blank(),
+          plot.title = element_text(hjust=0.5))
+  
+  # Set plot height
+  plot_height = ifelse(length(unique(gtf_sub$target_id))<5, 5,
+                       length(unique(gtf_sub$target_id))*(2/3))
+  
+  # Name plot
+  plot.name<-paste(fig.dir, paste(i, "_Tx_annotations.png", sep=""), sep="/")
+  
+  # Save plot
+  ggsave(plot = tx_annotation_plot, filename = plot.name, dpi=300, 
+         height = plot_height, width =8)
+}
+```
+
+## Transcript composition structure
+
+```{r}
+# Set directory
+fig.dir<-"./figs/sleuth_DE/tx_composition_structure"
+```
+
+```{r echo=FALSE, eval=FALSE, message=FALSE}
+# Reduce plotting list to genes with multiple transcripts
+plotting_genes_of_interest_multiple_tx<-
+  sleuth_results_gene%>%
+  filter(ext_gene %in% plotting_genes_of_interest_clean)%>%
+  filter(num_aggregated_transcripts>1)%>%
+  dplyr::select(ext_gene)%>%
+  distinct()%>%
+  unlist()%>%
+  as.character()
+
+for(i in plotting_genes_of_interest_multiple_tx){
+  print(paste("Plot", match(i, plotting_genes_of_interest_multiple_tx), 
+              "of", length(plotting_genes_of_interest_multiple_tx)))
+  #------------------------------------------
+  #  Format GTF info for structure plotting
+  #-----------------------------------------
+  #Subset GTF for transcript info
+  gtf_sub<-filter(gtf_df, gene_name==i)%>%
+    filter(transcript_id %in% unique(sleuth_results_tx$target_id) | is.na(transcript_id))%>%
+    mutate(transcript_type = str_replace_all(transcript_type, "_", " "))%>%
+    mutate(transcript_type = factor(transcript_type, levels = names(biotype_colors)))
+  
+  
+  # Create DF with full range for each transcript & other info.
+  gtf_sub_tx_frame<-gtf_sub%>%
+    filter(!is.na(transcript_id))%>%
+    filter(!is.na(exon_number))%>%
+    group_by(transcript_id)%>%
+    summarise(start= min(start), end = max(end))%>%
+    left_join(dplyr::select(gtf_sub, transcript_id, transcript_type, transcript_name))%>%
+    distinct()%>%
+    group_by(transcript_id)%>%
+    mutate(label_position = start + (end-start)*1.01)
+  
+  # Establish panel.grid breaks at the start/stop of each exon
+  tx_panel_breaks<-unique(c(gtf_sub$start, gtf_sub$end))
+  
+  #------------------------------------------
+  #  Format plot DF for proportions
+  #-----------------------------------------
+  
+  # Assemble df for plotting proportion
+  plot_df<-
+    filter(so_object$target_mapping, ext_gene ==i)%>%
+    left_join(so_object$obs_norm_filt, by = "target_id")%>%
+    right_join(so_object$sample_to_covariates, by="sample")%>%
+    arrange(target_id)%>%
+    group_by(sample)%>%
+    mutate(prop_tpm = tpm/sum(tpm))%>%
+    group_by(target_id)%>%
+    mutate(mean_prop_tpm=mean(prop_tpm), max_prop_tpm=max(prop_tpm))%>%
+    left_join(dplyr::select(gtf_sub, transcript_id, transcript_name, transcript_type), 
+              by = c( "target_id" = "transcript_id"))%>%
+    distinct()%>%
+    separate(condition, c("RSTR", "TB"), sep="_", remove = FALSE)%>% # split condition into 2 factors
+    mutate(RSTR = factor(RSTR, levels = c("RSTR", "LTBI")))
+  
+  # reorder target levels by their mean expression in tpm
+  plot_df$target_id<-reorder(plot_df$target_id, plot_df$mean_prop_tpm)
+  plot_df$transcript_name<-reorder(plot_df$transcript_name, plot_df$mean_prop_tpm)
+  
+  # Assemble df for annotations
+  annotation_df<-sleuth_results_tx%>%
+    filter(effect=="RSTR")%>%
+    filter(ext_gene == i)%>%
+    mutate(condition = ifelse(str_detect(reference_level, "MEDIA"), "MEDIA",
+                              ifelse(str_detect(reference_level, "TB"), "TB", 
+                                     NA)))%>%
+    dplyr::select(target_id, ext_gene, pval, qval, condition)%>%
+    pivot_wider(names_from = condition, values_from = c(pval, qval))%>%
+    left_join(dplyr::select(plot_df, target_id, mean_prop_tpm, max_prop_tpm),
+              by = "target_id")%>%
+    distinct()%>%
+    mutate(annotation_MEDIA = ifelse(qval_MEDIA>=0.2, "", 
+                                     ifelse(qval_MEDIA<0.2 & qval_MEDIA>=0.1, "0.2", 
+                                            ifelse(qval_MEDIA<0.1 & qval_MEDIA>=0.05, "0.1",
+                                                   ifelse(qval_MEDIA<0.05 & qval_MEDIA>=0.01, "*",
+                                                          ifelse(qval_MEDIA<0.01 & qval_MEDIA>=0.001, "**",
+                                                                 ifelse(qval_MEDIA<0.001, "***", 
+                                                                        NA)))))),
+           annotation_TB = ifelse(qval_TB>=0.2, "", 
+                                  ifelse(qval_TB<0.2 & qval_TB>=0.1, "0.2", 
+                                         ifelse(qval_TB<0.1 & qval_TB>=0.05, "0.1",
+                                                ifelse(qval_TB<0.05 & qval_TB>=0.01, "*",
+                                                       ifelse(qval_TB<0.01 & qval_TB>=0.001, "**",
+                                                              ifelse(qval_TB<0.001, "***",
+                                                                     NA)))))))%>%
+    
+    mutate(x_ann = max_prop_tpm*1.1)%>%
+    mutate(target_id = factor(target_id, levels = levels(plot_df$target_id)))%>%
+    dplyr::select(target_id, contains("annotation"), x_ann)%>%
+    pivot_longer(cols = c(annotation_MEDIA, annotation_TB))%>%
+    mutate(TB= ifelse(str_detect(name, "MEDIA"), "MEDIA", 
+                      ifelse(str_detect(name, "TB"), "TB", NA)))%>%
+    mutate(RSTR = "RSTR")%>%
+    ungroup()%>%
+    mutate(y_ann = as.numeric(target_id))%>%
+    left_join(dplyr::select(gtf_sub, transcript_id, transcript_name)%>%distinct(), 
+              by = c("target_id" = "transcript_id"))
+  
+  
+  # Fill in missing info for TB
+  annotation_df<-bind_rows(annotation_df, 
+                           mutate(annotation_df, RSTR="LTBI", value = ""))%>%
+    mutate(y_ann_grouplab = ifelse(RSTR=="LTBI", y_ann+0.2, y_ann-0.2))
+  
+  # Make plot
+  tx_proportion_plot<-
+    plot_df%>%
+    group_by(sample)%>%
+    mutate(tpm_prop = tpm/sum(tpm))%>%
+    ggplot(aes(y=transcript_name, x=tpm_prop, color=condition, 
+               fill = condition, group = interaction(transcript_name, RSTR)))+
+    geom_boxplot(alpha=0.7)+
+    scale_color_manual(values = condition_colors)+
+    scale_fill_manual(values = condition_colors)+
+    geom_text(data=annotation_df, aes(label = value, y=y_ann, x=x_ann), 
+              color = "black", inherit.aes = F)+
+    geom_text(data=annotation_df, aes(label = RSTR, y=y_ann_grouplab, x=-0.1), 
+              color = "black", hjust=0, size=2, inherit.aes = F)+
+    xlab("Proportion TPM")+
+    ylab("Transcript")+
+    ggtitle(paste0(i, "\nTranscript Composition"))+
+    #labs(color = "Transcript ID", fill = "Transcript ID")+
+    #facet_grid(rows = vars(TB), cols = vars(RSTR))+
+    facet_grid(cols = vars(TB))+
+    scale_x_continuous(limits = c(-0.15, 1), breaks = seq(0,1,0.2))+
+    theme_bw()+
+    theme(legend.position = "none",
+          strip.background = element_blank(),
+          panel.grid.minor = element_blank(), 
+          plot.title = element_text(hjust=0.5))
+  
+  # Set composition plot size
+  # Set height based on number of tx visualized
+  plot_height = ifelse(length(unique(plot_df$target_id))<5, 5,
+                       length(unique(plot_df$target_id))*(2/3))
+  
+  #-----------------------------------------
+  #  Assemble Transcript Structure Plot
+  #-----------------------------------------
+  
+  # Additional Formatting
+  # Bind to mean expression for transcripts
+  gtf_sub_plot<-
+    gtf_sub%>%
+    left_join(dplyr::select(plot_df, transcript_name, mean_prop_tpm)%>%
+                distinct())
+  
+  # reorder target levels by their mean expression in tpm
+  gtf_sub_plot$transcript_name<-reorder(gtf_sub_plot$transcript_name,
+                                        gtf_sub_plot$mean_prop_tpm)
+  
+  # define x limits
+  tx_xmin<-min(tx_panel_breaks)
+  tx_xmax<-max(tx_panel_breaks)
+  
+  # Set breaks conditioned on span of gene
+  if(tx_xmax-tx_xmin>=5000){
+    tx_x_breaks<- c(tx_xmin, seq(ceiling(tx_xmin/0.5e4)*0.5e4, 
+                                 floor(tx_xmax/0.5e4)*0.5e4, 0.5e4), tx_xmax)} else{ 
+      tx_x_breaks<- c(tx_xmin, seq(ceiling(tx_xmin/0.1e4)*0.1e4, 
+                                   floor(tx_xmax/0.1e4)*0.1e4, 0.1e4), tx_xmax)}
+  
+  tx_x_break_labels<-as.character(tx_x_breaks/1000)
+  
+  tx_structure_plot<-
+    gtf_sub_plot%>%
+    filter(!is.na(transcript_id))%>%
+    filter(!is.na(exon_number))%>%
+    ggplot(aes(y=transcript_name))+
+    geom_segment(aes(x=start, xend=end, y=transcript_name, yend=transcript_name, 
+                     color = transcript_type), size = 5)+
+    geom_segment(data=gtf_sub_tx_frame, aes(x=start, xend=end, y=transcript_name,
+                                            yend=transcript_name, color=transcript_type))+
+    scale_color_manual(values = biotype_colors)+
+    ggtitle(paste0(i, "\nTranscript Structure"))+
+    ylab("")+
+    xlab(paste0(str_replace(unique(gtf_sub$seqnames), "chr", "Chromosome "), 
+                " Position (Mbp)"))+
+    labs(color = "Transcript \nBiotype")+
+    scale_x_continuous(
+      limits = c(tx_xmin, tx_xmax), breaks = tx_x_breaks, labels = tx_x_break_labels,
+      minor_breaks = tx_panel_breaks)+
+    theme_bw()+
+    theme(panel.grid.major.y = element_blank(), 
+          panel.grid.major.x = element_blank(),
+          axis.text.y = element_blank(),
+          axis.text.x = element_text(angle=25, vjust=1, hjust=1),
+          plot.title = element_text(hjust=0.5))
+  
+  # Set width based on range of gene.
+  plot_width = (tx_xmax-tx_xmin)*(8/76799) # Scales plot width based on the range of the gene
+  plot_width = ifelse(plot_width<6, 6, ifelse(plot_width>15, 15, plot_width))
+  
+  #-----------------------------------------
+  #  Assemble Multipanel
+  #-----------------------------------------
+  
+  tx_proportion_structure<-
+    tx_proportion_plot + tx_structure_plot
+  
+  # Name plot
+  plot.name<-paste(fig.dir, paste(i, "_Tx_tpm_proportions_4condition_Tx_Structure.png",
+                                  sep=""), sep="/")
+  
+  # Save plot
+  ggsave(plot = tx_proportion_structure, filename = plot.name, dpi=300,
+         height = plot_height, width = 2*plot_width)
+}
+```
+
+# Gene plots
+
+Explore volcano-type plotting of gene level results. 
+Generate a weighted mean absolute fold change for each gene to plot against the gene-level FDR.
+
+```{r}
+# Set directory
+fig.dir<-"figs/sleuth_DE/volcano_plots"
+```
+
+```{r eval=FALSE, echo=FALSE, message=FALSE}
+# Summarize Gene level effect for the RSTR effect
+sleuth_results_gene_volcano_summary<-
+  sleuth_results_tx%>%
+  filter(effect=="RSTR")%>%
+  group_by(reference_level, ext_gene)%>%
+  summarize(WMean_FC = weighted.mean(abs(b), mean_obs))%>%
+  left_join(
+    filter(sleuth_results_gene, effect=="RSTR")%>%
+    dplyr::select(ext_gene, reference_level, 
+                  num_aggregated_transcripts, sum_mean_obs_counts, pval, qval))
+
+# Plot results
+sleuth_results_gene_volcano_plot<-
+  sleuth_results_gene_volcano_summary%>%
+  mutate(stim = ifelse(grepl("_TB", reference_level), "TB", 
+                       ifelse(grepl("_MEDIA", reference_level), "MEDIA", 
+                              NA)))%>%
+  arrange(sum_mean_obs_counts)%>%
+  mutate(label = ifelse((grepl("_TB", reference_level) & qval < 3.4e-09) | 
+                         (grepl("_MEDIA", reference_level) & qval< 2.3e-03), 
+                        ext_gene, NA))%>% # Label top 10 genes
+  ggplot(aes(x=WMean_FC, y=-log10(qval)))+
+  geom_point(aes(size=num_aggregated_transcripts, color=sum_mean_obs_counts),
+              alpha=0.7, shape=1, stroke = 0.5)+
+  scale_color_gradient(low = "dodgerblue", high= "firebrick2")+
+  ggrepel::geom_text_repel(aes(label=label), size=2, max.overlaps = Inf, segment.size=0.15)+
+  labs(size="No. Aggregated Tx", color = "Sum(Mean Tx Observed Counts)")+
+  xlab("Expression-Weighted \nMean Abs. Tx Fold-Change")+
+  ylab("-log10(Aggregate DEG FDR)")+
+  theme_bw()+
+  theme(aspect.ratio = 1, 
+        panel.grid = element_blank(), 
+        strip.background = element_rect(fill="white"),
+        legend.position = "top")+
+  facet_wrap(~stim)
+
+## SAVE
+ggsave(plot = sleuth_results_gene_volcano_plot,
+       filename = paste(fig.dir, "volcano_plot_DEGs_all_labeled.png", sep="/"),
+       width = 10, height = 6, dpi=300)
+```
+
+# Transcript & Gene Results Summary Plots
+
+Run loop to create summary tx + gene results plots. 
+Function is set up to color up to 6 transcripts if they are significant 
+in at least one condition. If more than 6 transcripts are significant at p<0.05, 
+then a p threshold is determined to reduce the number of colored transcripts.
+
+The function will attempt to set a p threshold, down to p<0.001. If there are more
+than 6 tx significant at that threshold, the gene is skipped and added to a list of 
+genes that will need to be handled separately. 
+
+```{r}
+# Load custom plotting functions
+source("https://raw.githubusercontent.com/rmsegnitz/Bioinformatics_Tools/master/R_functions/sleuth_plotting.R")
+
+# Set plot directory
+summary_plot_dir<-"figs/sleuth_DE/tx_gene_results_summary"
+```
+
+```{r eval=FALSE, echo=FALSE, message=FALSE}
+#--------------------------------
+# Plot Tx/Gene Results summaries
+#--------------------------------
+failed_plots=character(0) # set up vector to save failed genes
+
+for(i in plotting_genes_of_interest_clean){
+  print(paste("Plot", match(i, plotting_genes_of_interest_clean), 
+              "of", length(plotting_genes_of_interest_clean)))
+  
+  skip_to_next <- FALSE # set skip variable so we can skip genes with errors
+  
+  tryCatch( # create plot
+    tx_gene_summary_plot<-
+      plot_sleuth_res_geneTx(tx_results = sleuth_results_tx,
+                             gene_results = sleuth_results_gene,
+                             gene = i, 
+                             gw_expression = T), 
+    error = function(e){skip_to_next <<- TRUE}) # if error, set skip=T
+  
+  if(skip_to_next) { # If gene is to be skipped, print message and save gene name to vector.
+    print(paste0("Error encountered in ", i, ". Rerun."))
+    failed_plots <- c(failed_plots, i) 
+    next }
+  
+  
+  #-------------------
+  #    Save plot
+  #-------------------
+  tx_gene_summary_plot_name<-
+    paste0(i, "_tx_gene_result_summary_plot.png")
+  
+  ggsave(plot = tx_gene_summary_plot, 
+         filename =  paste(summary_plot_dir, tx_gene_summary_plot_name, sep="/"),
+         height=7, width=7, dpi=300)
+  
+}
+
+# Clean up failed genes (only 1, CIITA)
+tx_gene_summary_plot<-
+  plot_sleuth_res_geneTx(tx_results = sleuth_results_tx,
+                         gene_results = sleuth_results_gene,
+                         gene = "CIITA",
+                         sig = 0.0001,
+                         gw_expression = T)
+
+ggsave(plot = tx_gene_summary_plot, 
+       filename =  paste(summary_plot_dir,  
+                         paste0("CIITA", "_tx_gene_result_summary_plot.png"), sep="/"),
+       height=7, width=7, dpi=300)
+```
+
+# R session
+
+```{r}
+sessionInfo()
+```
