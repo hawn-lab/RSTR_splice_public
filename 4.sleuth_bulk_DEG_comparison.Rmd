@@ -1,0 +1,292 @@
+---
+title: "Contrast model of genes with DET"
+subtitle: "Uganda: TB-induced RSTR vs LTBI"
+author: "Kim Dill-McFarland (kadm@uw.edu); Max Segnitz (msegnitz@uw.edu)"
+date: "version `r format(Sys.time(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: yes
+    toc_float:
+      collapsed: no
+editor_options:
+  chunk_output_type: console
+---
+
+# Setup
+
+R packages
+
+```{r}
+# Data manipulation and plotting
+library(tidyverse)
+#Linear models
+library(limma)
+library(kimma)
+#Plotting addtl
+library(ggrepel)
+library(UpSetR)
+# Tables
+library(kableExtra)
+options(knitr.kable.NA = '')
+library(DT)
+```
+
+# Data
+
+Load data from Mtb-induced differential gene analysis.
+
+```{r}
+load("data_raw/bulk_analysis/RSTR_RNAseq_data_combined_uniqueFULLID.RData")
+
+kin <- read_csv("data_raw/bulk_analysis/kinship_Hawn_all.csv") %>% 
+  column_to_rownames() %>% 
+  as.matrix()
+```
+
+Read in list of genes with significant differentially expressed transcripts (DET).
+
+```{r}
+DET <- 
+  read.csv("results/sleuth/sleuth_mod_fourCondition_sleuth_table_tx_full_results.csv", 
+           row.names = "X")
+
+DEG <- 
+  read.csv("results/sleuth/sleuth_mod_fourCondition_sleuth_table_gene_full_results.csv", 
+           row.names = "X")
+```
+
+# DETs FDR < 0.5 comparison
+# Gene contrast model 
+## Format data
+
+Filter to genes with significant DET
+
+```{r}
+fdr.cutoff <- 0.05
+
+genes <- DET %>% 
+  #Keep RSTR contrasts
+  filter(effect == "RSTR") %>% 
+  #Filter significant genes
+  filter(qval < fdr.cutoff) %>% 
+  #Remove transcript ID
+  separate(ens_gene, into="geneName", sep="[.]", extra = "drop") %>% 
+  distinct(ext_gene, geneName)
+```
+
+Verify all genes are in expression data
+
+```{r}
+#Get unique ENSEMBL ID
+gene.key <- dat.combined.voom$genes %>% 
+  separate(geneName, into=as.character(c(1:4)), sep="/", fill="right") %>% 
+  pivot_longer(as.character(c(1:4)), values_to = "geneName") %>% 
+  filter(geneName %in% genes$geneName)
+```
+
+One gene is missing and cannot be modeled
+
+```{r echo=F}
+genes %>% filter(!(geneName %in% gene.key$geneName))
+```
+
+## Fit contrast model
+
+```{r eval=FALSE}
+#Create pairwise groups
+dat.combined.voom$targets <- dat.combined.voom$targets %>% 
+  mutate(contrast = paste(condition, Sample_Group, sep="_"))
+#Create contrast matrix
+design <- model.matrix(~ 0 + contrast, data = dat.combined.voom$targets)
+contrast.mat <- makeContrasts(contrastMEDIA_RSTR-contrastMEDIA_LTBI, 
+                              contrastTB_RSTR-contrastTB_LTBI,
+                              levels = design)
+
+DEGkm <- kmFit(dat.combined.voom, kin=kin, patientID = "FULLIDNO",
+             subset.genes = gene.key$symbol,
+             model = "~ contrast + KCHCA_AGE_YR_CURRENT + M0_KCVSEX + experiment + (1|FULLIDNO)",
+             run.lmekin = TRUE,
+             # contrast.mat=contrast.mat,
+             contrast.var = "contrast",
+             run.contrast = TRUE,
+             processors = 3)
+```
+
+Save contrast results
+
+```{r eval=FALSE}
+DEG.contrast <- 
+  DEGkm$lmekin.contrast%>%
+  filter(contrast %in% str_remove_all(colnames(contrast.mat), "contrast"))%>%
+  filter(variable=="contrast") %>% 
+  mutate(label = recode(contrast, 
+                        "MEDIA_RSTR - MEDIA_LTBI"="RSTR - LTBI in media",
+                        "TB_RSTR - TB_LTBI"="RSTR - LTBI in Mtb"))
+
+write_csv(DEG.contrast, "results/comp_to_bulkRNASeq/DEG_contrast_compare.csv")
+```
+
+```{r include=FALSE}
+DEG.contrast <- read_csv("results/comp_to_bulkRNASeq/DEG_contrast_compare.csv")
+```
+
+Visualize significant genes
+
+```{r echo=FALSE}
+DEG.contrast %>% 
+  ##Format to match new version kimma
+  separate(contrast, into=c("contrast_lvl","contrast_ref"), sep = " - ") %>% 
+  summarise_kmFit() %>% 
+  kable(col.names = c("variable","contrast level","contrast ref",
+                      0.05,0.1,0.2,0.3,0.4,0.5)) %>%
+  kable_styling(bootstrap_options = "striped", full_width=FALSE) %>% 
+  add_header_above(c(" "=3, "Genes FDR <"=6))
+```
+
+```{r echo=FALSE, message=FALSE, fig.width=8.5, fig.height=10}
+plot1 <- DEG.contrast %>% 
+  ggplot(aes(x=estimate, y=-log10(FDR))) +
+  geom_point() + 
+  theme_classic() +
+  geom_vline(xintercept = 0) +
+  geom_hline(yintercept = -log10(0.05), color="red", ) +
+  geom_hline(yintercept = -log10(0.2), color="orange") +
+  geom_text(aes(x=-2.5, -log10(0.05), label = "FDR = 0.05", vjust = -1)) +
+  geom_text(aes(x=-2.5, -log10(0.2), label = "FDR = 0.2", vjust = -1)) +
+  geom_text_repel(data = filter(DEG.contrast, FDR < 0.2),
+                  aes(label = gene), direction = "both",
+                  min.segment.length = unit(0, 'lines'),
+                  show.legend = FALSE, max.overlaps = 100, size=3) +
+  ggtitle("Gene expression ~ contrast + age + sex + batch + kinship")
+
+plot1 + facet_wrap(~label, ncol=1)
+
+ggsave(plot=plot1 + facet_wrap(~label), 
+       filename = "figs/comp_to_bulkRNASeq/compDEG_contrast_compare.pdf", 
+       height=8, width=10)
+```
+
+
+```{r echo=FALSE, message=FALSE}
+DET.format <- DET %>% 
+  filter(effect == "RSTR" & qval < fdr.cutoff) %>% 
+  mutate(contrast = recode(reference_level, "LTBI_TB"="RSTR - LTBI in Mtb", 
+                           "LTBI_MEDIA"="RSTR - LTBI in media")) %>% 
+  separate(ens_gene, into="geneName", sep="[.]", extra = "drop") %>% 
+  dplyr::select(ext_gene, geneName, contrast, qval) %>% 
+  rename(FDR=qval, gene=ext_gene) %>% 
+  group_by(gene, geneName) %>% 
+  mutate(name=row_number()) %>% 
+  pivot_wider(values_from = FDR)
+
+DEG.contrast %>% 
+  left_join(dplyr::select(gene.key, symbol, geneName), by=c("gene"="symbol")) %>% 
+  dplyr::select(gene, geneName, FDR, label) %>% 
+  rename(contrast=label) %>% 
+  full_join(DET.format, by = c( "geneName", "contrast")) %>% 
+  mutate(gene.x = ifelse(is.na(gene.x), gene.y, gene.x),
+         gene.y = ifelse(gene.x != gene.y, gene.y, NA)) %>% 
+  dplyr::select(gene.x, geneName, gene.y, contrast, FDR, everything()) %>% 
+  arrange(gene.x, contrast) %>% 
+  datatable(colnames = c("gene", "ENSEMBL", "alt gene name",
+                         "contrast", "DEG FDR", c(1:6)),
+            extensions = 'Buttons',
+            options = list(dom = 'Blfrtip', buttons = c('csv', 'excel')))
+```
+
+## Compare DET/DEG FDRs
+
+```{r  echo=FALSE, message=FALSE}
+# summarize DET info (ie min fdr & number of DETs)
+DET_format2<-
+  DET.format%>%
+  pivot_longer(c("1", "2", "3", "4", "5", "6"))%>%
+  group_by(gene, contrast)%>%
+  mutate(min_DET_fdr = min(value, na.rm = T))%>%
+  mutate(n_DET = length(which(value<0.05)))%>%
+  dplyr::select(-c(name, value))%>%
+  distinct()%>%
+  mutate(contrast = recode(contrast, "RSTR - LTBI in Mtb" = "TB_RSTR - TB_LTBI", 
+                           "RSTR - LTBI in media" = "MEDIA_RSTR - MEDIA_LTBI"))
+
+# Combine w contrast DEGs
+DET_DEG_fdr_comparison<-
+DEG.contrast%>%
+  left_join(DET_format2, by=c("gene", "contrast"))
+
+# Plot comparison
+DET_DEG_fdr_comparison%>%
+  filter(!is.na(min_DET_fdr))%>%
+  mutate(gene_label =ifelse(FDR>min_DET_fdr | FDR>0.05, gene, NA))%>%
+  ggplot(aes(y=-log10(FDR), x=-log10(min_DET_fdr)))+
+  geom_point(aes(size=n_DET))+
+  facet_wrap(~label)+
+  geom_hline(yintercept = -log10(0.05), linetype="dashed", color="red")+
+  geom_vline(xintercept = -log10(0.05), linetype="dashed", color="red")+
+  geom_abline(slope = 1, intercept = 0, linetype="dashed", color="lightgrey")+
+  ggrepel::geom_text_repel(aes(label=gene_label), 
+                           max.overlaps = Inf, seed=28, size=2)+
+  scale_y_continuous(limits = c(0, NA))+
+  scale_x_continuous(limits = c(0, NA))+
+  theme_bw()
+```
+
+
+## Compare to Bulk Interaction DEGs
+
+```{r  echo=FALSE, message=FALSE}
+bulkDEG_interaction<-
+  read.csv("data_raw/bulk_analysis/RSTR.interaction_age.sex.batch.model.results.csv.gz")%>%
+  filter(variable=="conditionTB:Sample_GroupRSTR"& FDR<0.2)%>%
+  pull(gene)%>%unique()
+```
+
+```{r echo=FALSE, message=FALSE}
+# Define Gene Lists
+DET_genes_TB<-
+  filter(DET, qval<0.2 & effect=="RSTR" & grepl("TB", reference_level))%>%
+  pull(ext_gene)%>%unique()
+  
+DET_genes_MEDIA<-
+    filter(DET, qval<0.2 & effect=="RSTR" & grepl("MEDIA", reference_level))%>%
+  pull(ext_gene)%>%unique()
+
+sDEG_genes_TB<-
+  filter(DEG, qval<0.2 & effect=="RSTR" & grepl("TB", reference_level))%>%
+  dplyr::select(ext_gene)%>%
+  distinct()%>%
+  unlist()
+
+sDEG_genes_MEDIA<-
+  filter(DEG, qval<0.2 & effect=="RSTR" & grepl("MEDIA", reference_level))%>%
+  dplyr::select(ext_gene)%>%
+  distinct()%>%
+  unlist()
+```
+
+```{r  echo=FALSE, message=FALSE}
+# Visualize Comparison
+gene_lists = list(
+          "Sleuth DET Genes: TB" = DET_genes_TB,
+          "Sleuth DET Genes: MEDIA" = DET_genes_MEDIA,
+          "Sleuth DEGs: TB" = sDEG_genes_TB,
+          "Sleuth DEGs: MEDIA" = sDEG_genes_MEDIA,
+          "lmekin Interaction DEGs" = bulkDEG_interaction)
+
+gene_list_comparisons<-
+  upset(fromList(gene_lists), 
+        order.by = "freq",
+        sets = names(gene_lists),
+        keep.order = TRUE, 
+          )
+```
+
+```{r echo=FALSE, message=FALSE, fig.height=8, fig.width=10}
+gene_list_comparisons
+```
+
+# R session
+
+```{r}
+sessionInfo()
+```
