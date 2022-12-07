@@ -1,0 +1,379 @@
+---
+title: "Enrichment Analysis of Sleuth DET & DEG Genes"
+subtitle: "Uganda: Sleuth Tx RSTR vs LTBI"
+author: "Max Segnitz, msegnitz@uw.edu"
+date: "version `r format(Sys.time(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: yes
+    toc_float:
+      collapsed: no
+editor_options:
+  chunk_output_type: console
+---
+
+Genes are significant (either as DETs or from aggregated DEGs) \@ FDR\<0.05 for the RSTR vs LTBI comparisons in a 4-level contrast model adjusted for AGE and SEX.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# load R packages
+# Data wrangling etc.
+library(tidyverse)
+library(kableExtra)
+options(knitr.kable.NA = '')
+library(DT)
+
+# graphics
+library(eulerr)
+library(gridExtra)
+
+# hypergeometric enrichment
+library(enrichR)
+
+#misc
+`%notin%`<-Negate(`%in%`)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# Read in list of genes with significant differentially expressed transcripts (DET).
+DET <- read.csv("results/sleuth/sleuth_mod_fourCondition_sleuth_table_tx_full_results.csv",
+                row.names = "X")
+DEG <- read.csv("results/sleuth/sleuth_mod_fourCondition_sleuth_table_gene_full_results.csv",
+                row.names="X")
+```
+
+# Summary of Sleuth Results
+
+```{r, , echo=FALSE, message=FALSE, warning=FALSE}
+# Summarize results
+## Transcripts
+DET%>%
+  filter(effect=="RSTR")%>%
+  unite("contrast", c(group_2, reference_level), sep="_vs_")%>%
+  group_by(contrast)%>%
+  summarise(FDR.05 = length(which(qval<0.05)), FDR.1 = length(which(qval<0.1)),
+            FDR.2 = length(which(qval<0.2)), FDR.3 = length(which(qval<0.3)), 
+            FDR.4 = length(which(qval<0.4)), FDR.5 = length(which(qval<0.5)))%>%
+  kable(caption = "Sleuth DETs",align=c("l","c","c", "c", "c", "c"),
+      col.names = c("Contrast",  "0.05", "0.1", "0.2","0.3","0.4","0.5")) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = FALSE) %>% 
+  add_header_above(c(" " = 1, " FDR <"=6))
+  
+
+## Genes
+DEG%>%
+  filter(effect=="RSTR")%>%
+  unite("contrast", c(group_2, reference_level), sep="_vs_")%>%
+  group_by(contrast)%>%
+  summarise(FDR.05 = length(which(qval<0.05)), FDR.1 = length(which(qval<0.1)),
+            FDR.2 = length(which(qval<0.2)), FDR.3 = length(which(qval<0.3)), 
+            FDR.4 = length(which(qval<0.4)), FDR.5 = length(which(qval<0.5)))%>%
+  kable(caption = "Sleuth DEGs (Aggregated)", align=c("l","c","c", "c", "c", "c"),
+      col.names = c("Contrast",  "0.05", "0.1", "0.2","0.3","0.4","0.5")) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = FALSE) %>% 
+  add_header_above(c(" " = 1, "FDR <"=6))
+```
+
+# Sleuth Results Tables
+
+## FDR \< 0.2
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Filter to genes with significant DET @ FDR<0.05
+fdr.cutoff <- 0.2
+
+DET_sig_results<-
+  DET %>% 
+  #Keep RSTR contrasts
+  filter(effect == "RSTR") %>% 
+  #Filter significant genes
+  filter(qval < fdr.cutoff) %>% 
+  #Remove transcript ID
+  separate(ens_gene, into="geneName", sep="[.]", extra = "drop") %>% 
+  mutate(direction = case_when(b>0 ~ "up", b<0 ~ "down"))
+
+
+DETgenes_FDR2 <- DET_sig_results %>% 
+  distinct(ext_gene, geneName)
+
+DETgenes_FDR05 <- DET_sig_results %>% 
+  filter(qval<0.05)%>%
+  distinct(ext_gene, geneName)
+
+DEG_sig_results <- DEG %>% 
+  #Keep RSTR contrasts
+  filter(effect == "RSTR") %>% 
+  #Filter significant genes
+  filter(qval < fdr.cutoff) %>% 
+  #Remove transcript ID
+  separate(target_id, into="geneName", sep="[.]", extra = "drop") 
+
+DEGgenes_FDR2 <- DEG %>% 
+  #Keep RSTR contrasts
+  filter(effect == "RSTR") %>% 
+  #Filter significant genes
+  filter(qval < fdr.cutoff) %>% 
+  #Remove transcript ID
+  separate(target_id, into="geneName", sep="[.]", extra = "drop") %>% 
+  distinct(ext_gene, geneName)
+
+DEGgenes_FDR05 <- DEG %>% 
+  #Keep RSTR contrasts
+  filter(effect == "RSTR") %>% 
+  #Filter significant genes
+  filter(qval < 0.05) %>% 
+  #Remove transcript ID
+  separate(target_id, into="geneName", sep="[.]", extra = "drop") %>% 
+  distinct(ext_gene, geneName)
+```
+
+Search all significant DET and DEG results at FDR \< 0.2
+
+```{r, echo=FALSE}
+DET_sig_results%>%
+  arrange(qval)%>%
+  dplyr::select(ext_gene, target_id,reference_level, direction, qval)%>%
+  mutate(reference_level = str_remove(reference_level, "LTBI_"))%>%
+  mutate(qval = ifelse(qval<0.001, 
+                                   format(qval, scientific=T, digits=1), 
+                                   round(qval, 3)))%>%
+  datatable(caption = "Sleuth DETs FDR<0.05",
+            colnames = c("Gene Name", "Target ID", "Media/MTb", "Direction", "FDR"),
+            extensions = 'Buttons',
+            options = list(dom = 'Blfrtip', buttons = c('csv', 'excel')))
+  
+
+DEG_sig_results%>%
+  arrange(qval)%>%
+  dplyr::select(ext_gene, num_aggregated_transcripts,reference_level, qval)%>%
+  mutate(reference_level = str_remove(reference_level, "LTBI_"))%>%
+  mutate(qval = ifelse(qval<0.001, 
+                                   format(qval, scientific=T, digits=1), 
+                                   round(qval, 3)))%>%
+  datatable(caption = "Sleuth Aggregated DEGs FDR<0.05", 
+            colnames = c("Gene Name", "No. Aggregated Tx", "Media/MTb", "FDR"),
+            extensions = 'Buttons',
+            options = list(dom = 'Blfrtip', buttons = c('csv', 'excel')))
+  
+```
+
+# Hypergeometric Enrichment
+
+Hypergeometric enrichment on gene lists using FDR\<0.05.
+
+## DET Genes
+
+Enrichment on genes in which Sleuth analysis found transcripts differentially expressed for the RSTR effect at FDR \< 0.05
+
+`r dim(DETgenes_FDR05)[1]` genes with DETS FDR \< 0.05
+
+```{r, echo=F, message=F, warning=F}
+# GO term enrichment
+DET_GO_FDR05<- enrichr(DETgenes_FDR05$ext_gene, c("GO_Biological_Process_2021",
+                                    "GO_Cellular_Component_2021", 
+                                    "GO_Molecular_Function_2021"))
+#combine GO results
+DET_GO_combined_FDR05<-
+  mutate(DET_GO_FDR05$GO_Biological_Process_2021, GO_set = "Biological Process")%>%
+  bind_rows(
+    mutate(DET_GO_FDR05$GO_Cellular_Component_2021, GO_set = "Cellular Component")
+  )%>%
+  bind_rows(
+    mutate(DET_GO_FDR05$GO_Molecular_Function_2021, GO_set = "Molecular Function"))%>%
+  mutate(FDR_allGO = p.adjust(P.value))%>%
+  arrange(Adjusted.P.value)%>%
+  dplyr::select(GO_set, everything(), -contains("Old"))
+  
+# Hallmark Term Enrichement
+DET_Hallmark_FDR05<-enrichr(DETgenes_FDR05$ext_gene, c("MSigDB_Hallmark_2020"))[[1]]%>%
+  arrange(Adjusted.P.value)%>%
+  dplyr::select(-contains("Old"))
+```
+
+```{r, echo=F, message=F, warning=F}
+# Combine and embed results
+DET_Hallmark_FDR05%>%
+  dplyr::select(Term, Overlap, Adjusted.P.value, Genes)%>%
+  filter(Adjusted.P.value<0.05)%>%
+  mutate(Adjusted.P.value = ifelse(Adjusted.P.value<0.001, 
+                                   format(Adjusted.P.value, scientific=T, digits=3), 
+                                   round(Adjusted.P.value, 3)))%>%
+  mutate(Genes = str_replace_all(Genes, ";", ",  "))%>%
+  datatable(caption = "Sleuth DET Genes: Hallmark Term Enrichment", 
+            extensions = 'Buttons',
+            options = list(dom = 'Blfrtip', buttons = c('csv', 'excel')))
+
+DET_GO_combined_FDR05%>%
+  arrange(Adjusted.P.value)%>%
+  dplyr::select(GO_set, Term, Overlap, Adjusted.P.value, Genes)%>%
+  filter(Adjusted.P.value<0.05)%>%
+  mutate(Adjusted.P.value = ifelse(Adjusted.P.value<0.001, 
+                                   format(Adjusted.P.value, scientific=T, digits=1), 
+                                   round(Adjusted.P.value, 3)))%>%
+  mutate(Genes = str_replace_all(Genes, ";", ",  "))%>%
+  datatable(caption = "Sleuth DET Genes: GO Term Enrichment", 
+            extensions = 'Buttons',
+            options = list(dom = 'Blfrtip', buttons = c('csv', 'excel'),
+                           pageLength = 20))
+```
+
+## DEG Genes
+
+Enrichment on genes in which Sleuth analysis aggregated to the gene level were significant at FDR \< 0.05
+
+`r dim(DEGgenes_FDR05)[1]` DEGS FDR \< 0.05
+
+```{r, echo=F, message=F, warning=F}
+# GO term enrichment
+DEG_GO_FDR05<- enrichr(DEGgenes_FDR05$ext_gene, c("GO_Biological_Process_2021",
+                                    "GO_Cellular_Component_2021", 
+                                    "GO_Molecular_Function_2021"))
+#combine GO results
+DEG_GO_combined_FDR05<-
+  mutate(DEG_GO_FDR05$GO_Biological_Process_2021, GO_set = "GO_Biological_Process_2021")%>%
+  bind_rows(
+    mutate(DEG_GO_FDR05$GO_Cellular_Component_2021, GO_set = "GO_Cellular_Component_2021"))%>%
+  bind_rows(
+    mutate(DEG_GO_FDR05$GO_Molecular_Function_2021, GO_set = "GO_Molecular_Function_2021"))%>%
+  mutate(FDR_allGO = p.adjust(P.value))%>%
+  arrange(Adjusted.P.value)%>%
+  dplyr::select(GO_set, everything(), -contains("Old"))
+  
+# Hallmark Term Enrichement
+DEG_Hallmark_FDR05<-enrichr(DEGgenes_FDR05$ext_gene, c("MSigDB_Hallmark_2020"))[[1]]%>%
+  arrange(Adjusted.P.value)%>%
+  dplyr::select(-contains("Old"))
+```
+
+```{r, echo=F, message=F, warning=F}
+# Combine and embed results
+DEG_Hallmark_FDR05%>%
+  dplyr::select(Term, Overlap, Adjusted.P.value, Genes)%>%
+  filter(Adjusted.P.value<0.05)%>%
+  mutate(Adjusted.P.value = ifelse(Adjusted.P.value<0.001, 
+                                   format(Adjusted.P.value, scientific=T, digits=3), 
+                                   round(Adjusted.P.value, 3)))%>%
+  mutate(Genes = str_replace_all(Genes, ";", ",  "))%>%
+  datatable(caption = "Sleuth DEG Genes: Hallmark Term Enrichment", 
+            extensions = 'Buttons',
+            options = list(dom = 'Blfrtip', buttons = c('csv', 'excel'), 
+            pageLength=20))
+
+DEG_GO_combined_FDR05%>%
+  arrange(Adjusted.P.value)%>%
+  dplyr::select(GO_set, Term, Overlap, Adjusted.P.value, Genes)%>%
+  filter(Adjusted.P.value<0.05)%>%
+  mutate(Adjusted.P.value = ifelse(Adjusted.P.value<0.001, 
+                                   format(Adjusted.P.value, scientific=T, digits=1), 
+                                   round(Adjusted.P.value, 3)))%>%
+  mutate(Genes = str_replace_all(Genes, ";", ",  "))%>%
+  datatable(caption = "Sleuth DEG Genes: GO Term Enrichment", 
+            extensions = 'Buttons',
+            options = list(dom = 'Blfrtip', buttons = c('csv', 'excel')))
+```
+
+```{r, echo=FALSE}
+# Set results directory
+res.dir<-"results/gene_set_enrichment"
+if(!dir.exists(res.dir)){dir.create(res.dir)}
+
+# Save results
+DEG_GO_combined_FDR05%>%
+  write_csv(paste(res.dir, "sleuth_DEG_enrichment_GO_genelistFDR05.csv", sep="/"))
+
+DET_GO_combined_FDR05%>%
+  write_csv(paste(res.dir, "sleuth_DET_enrichment_GO_genelistFDR05.csv", sep="/"))
+
+DEG_Hallmark_FDR05%>%
+  write_csv(paste(res.dir, "sleuth_DEG_enrichment_Hallmark_genelistFDR05.csv", sep="/"))
+
+DET_Hallmark_FDR05%>%
+  write_csv(paste(res.dir, "sleuth_DET_enrichment_Hallmark_genelistFDR05.csv", sep="/"))
+```
+
+## Visualize Hypergeometric Enrichment
+
+Compare significantly enriched terms (p<0.05) based on gene lists defined at FDR<0.05 for DETS/DEGs.
+
+```{r, echo=F}
+# Set directory for venns
+fig.dir<-"figs/gene_set_enrichment"
+```
+
+```{r, echo=F, message = F, warning = F}
+#--------------------
+#   Gene Ontology
+#--------------------
+enrichment_lists_GO_05<-
+  list(DEG = filter(DEG_GO_combined_FDR05, P.value<0.05)$Term, 
+       DET = filter(DET_GO_combined_FDR05, P.value<0.05)$Term)
+
+enrichment_lists_GO_05_euler<-
+  c("DEG Genes" = length(which(enrichment_lists_GO_05$DEG %notin% enrichment_lists_GO_05$DET)),
+            "DET Genes" = length(which(enrichment_lists_GO_05$DET %notin% enrichment_lists_GO_05$DEG)),
+            "DEG Genes&DET Genes" = length(intersect(enrichment_lists_GO_05$DEG, enrichment_lists_GO_05$DET)))
+
+# Plot Term intersection
+set.seed(32)
+euler1<-
+plot(euler(enrichment_lists_GO_05_euler),
+     quantities = list(type=c("percent", "counts")),
+     fill = "transparent",
+     lty = 1:3,
+     labels = list(font = 4))
+
+## SAVE
+png(paste(fig.dir, "enrichment_venn_GO_FDR05.png", sep="/"), 
+    width = 5, height = 5, units = "in", res=300)
+# 2. Create the plot
+grid.arrange(grobs = list(euler1), 
+             top = "Gene Ontology Enrichment Terms \nDEG/DET FDR<0.05")
+# 3. Close the file
+dev.off()
+
+#--------------------
+#   Hallmark
+#--------------------
+enrichment_lists_HM_05<-
+  list(DEG = filter(DEG_Hallmark_FDR05, P.value<0.05)$Term, 
+       DET = filter(DET_Hallmark_FDR05, P.value<0.05)$Term)
+
+enrichment_lists_HM_05_euler<-
+  c("DEG Genes" = length(which(enrichment_lists_HM_05$DEG %notin% enrichment_lists_HM_05$DET)),
+            "DET Genes" = length(which(enrichment_lists_HM_05$DET %notin% enrichment_lists_HM_05$DEG)),
+            "DEG Genes&DET Genes" = length(intersect(enrichment_lists_HM_05$DEG, enrichment_lists_HM_05$DET)))
+
+# Plot Term intersection
+set.seed(32)
+euler2<-
+plot(euler(enrichment_lists_HM_05_euler),
+     quantities = list(type=c("percent", "counts")),
+     fill = "transparent",
+     lty = 1:3,
+     labels = list(font = 4))
+
+png(paste(fig.dir, "enrichment_venn_HM_FDR05.png", sep="/"),
+    width = 5, height = 5, units = "in", res=300)
+# 2. Create the plot
+ grid.arrange(grobs = list(euler2), top = "Hallmark Enrichment Terms \nDEG/DET FDR<0.05")
+# 3. Close the file
+dev.off()
+
+# Embed
+grid.arrange(grobs = list(euler1), 
+             top = "Gene Ontology Enrichment Terms \nDEG/DET FDR<0.05")
+grid.arrange(grobs = list(euler2), 
+             top = "Hallmark Enrichment Terms \nDEG/DET FDR<0.05")
+```
+
+Hallmark terms unique to...
+
+-   DET list - `r enrichment_lists_HM_05$DET[which(enrichment_lists_HM_05$DET %notin% enrichment_lists_HM_05$DEG)]`
+
+-   DEG list - `r enrichment_lists_HM_05$DEG[which(enrichment_lists_HM_05$DEG %notin% enrichment_lists_HM_05$DET)]`
+
+# R session
+
+```{r}
+sessionInfo()
+```
+
