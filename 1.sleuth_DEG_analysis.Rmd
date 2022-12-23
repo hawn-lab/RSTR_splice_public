@@ -365,6 +365,12 @@ sleuth_mod_fourCondition<-sleuth_wt(sleuth_mod_fourCondition,
                                     'full_batch')
 ```
 
+```{r eval=FALSE, include=FALSE}
+# Update Sleuth model object to include Wald tests.
+save(sleuth_mod_fourCondition,
+     file="results/sleuth/sleuth_mod_fourCondition.RData")
+```
+
 ### Aggregate to Gene Level
 
 ```{r message=FALSE}
