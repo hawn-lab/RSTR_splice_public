@@ -34,7 +34,7 @@ source("https://raw.githubusercontent.com/rmsegnitz/Bioinformatics_Tools/master/
 
 This import utilizes custom rare-gene filtering (passes transcripts with at least 5 counts in at least 60% of any of the 4 treatment groups (phenotype*stim)), and is limited to transcripts in protein coding genes.
 
-```{r}
+```{r eval=FALSE}
 # Load seq data with adv filtering
 filtered_targets_adv60<-read.csv(
   "data_raw/sleuth_imports/uganda_monocyte_discovery_and_validation_gene_design_filter_count_5_group_60_PC.csv") %>%
@@ -54,7 +54,7 @@ uganda_meta<-
 
 ### Update samples to covariate mapping
 
-```{r}
+```{r eval=FALSE}
 # Format new STC df
 stc<-
   SI_initial$sample_to_covariates%>%
@@ -80,7 +80,7 @@ SI$sample_to_covariates<-stc
 
 Drops resequenced samples as established in QC script.
 
-```{r}
+```{r eval=FALSE}
 # Establish samples to retain
 keep_samples<-
   SI$sample_to_covariates%>%
@@ -93,13 +93,14 @@ SI<-subset_sleuth_samples(SI, samples=keep_samples)
 ```
 
 # Test Differential Expression
-## Four Condition Analysis
 
 ```{r}
 # set directories for this analysis
 res.dir<-"results/sleuth"
 fig.dir<-"figs/sleuth_DE"
 ```
+
+## Four Condition Analysis
 
 ```{r eval=FALSE}
 ### Fit Sleuth models
@@ -559,9 +560,9 @@ sleuth_mod_fourCondition_sleuth_full_gene_results%>%
 
 ```
 
-## Save output
+### Save output
 
-```{r, eval=FALSE}
+```{r}
 # Aggregated results
 sleuth_mod_fourCondition_sleuth_full_tx_results%>%
   write.csv(file=
