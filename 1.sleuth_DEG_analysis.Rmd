@@ -321,7 +321,7 @@ ggsave(plot = age_sex_fit_comparison_plot,
        height=8, width = 8)
 ```
 
-#### Wald tests to isolate effects of interest
+### Wald tests to isolate effects of interest
 
 ```{r}
 #---------------
@@ -365,7 +365,7 @@ sleuth_mod_fourCondition<-sleuth_wt(sleuth_mod_fourCondition,
                                     'full_batch')
 ```
 
-### Aggregate to Gene Level
+### Extract Transcript Level
 
 ```{r message=FALSE}
 #---------------
@@ -378,21 +378,11 @@ sleuth_mod_fourCondition_sleuth_table_tx_RSTR_TB_LTBI_TB<-
                  test_type = 'wt', which_model="full_2_batch",
                  show_all = FALSE, pval_aggregate = FALSE)
 
-sleuth_mod_fourCondition_sleuth_table_gene_RSTR_TB_LTBI_TB <-
-  sleuth_results(sleuth_mod_fourCondition, "conditionRSTR_TB",
-                 test_type = 'wt', which_model="full_2_batch",
-                 show_all = FALSE, pval_aggregate = TRUE)
-
 #RSTR_MEDIA vs LTBI_MEDIA
 sleuth_mod_fourCondition_sleuth_table_tx_RSTR_MEDIA_LTBI_MEDIA<-
   sleuth_results(sleuth_mod_fourCondition, "conditionRSTR_MEDIA",
                  test_type = 'wt', which_model="full_batch",  
                  show_all = FALSE, pval_aggregate = FALSE)
-
-sleuth_mod_fourCondition_sleuth_table_gene_RSTR_MEDIA_LTBI_MEDIA <-
-  sleuth_results(sleuth_mod_fourCondition, "conditionRSTR_MEDIA", 
-                 test_type = 'wt', which_model="full_batch", 
-                 show_all = FALSE, pval_aggregate = TRUE)
 
 #---------------
 #  TB Effect
@@ -404,21 +394,11 @@ sleuth_mod_fourCondition_sleuth_table_tx_LTBI_TB_LTBI_MEDIA<-
                  test_type = 'wt', which_model="full_batch",
                  show_all = FALSE, pval_aggregate = FALSE)
 
-sleuth_mod_fourCondition_sleuth_table_gene_LTBI_TB_LTBI_MEDIA<-
-  sleuth_results(sleuth_mod_fourCondition, "conditionLTBI_TB",
-                 test_type = 'wt', which_model="full_batch",
-                 show_all = FALSE, pval_aggregate = TRUE)
-
 # RSTR_TB vs  RSTR_MEDIA
 sleuth_mod_fourCondition_sleuth_table_tx_RSTR_TB_RSTR_MEDIA<-
   sleuth_results(sleuth_mod_fourCondition, "conditionRSTR_TB",
                  test_type = 'wt', which_model="full_3_batch",
                  show_all = FALSE, pval_aggregate = FALSE)
-
-sleuth_mod_fourCondition_sleuth_table_gene_RSTR_TB_RSTR_MEDIA<-
-  sleuth_results(sleuth_mod_fourCondition, "conditionRSTR_TB",
-                 test_type = 'wt', which_model="full_3_batch",
-                 show_all = FALSE, pval_aggregate = TRUE)
 
 #---------------
 #  Covariates
@@ -430,21 +410,11 @@ sleuth_mod_fourCondition_sleuth_table_tx_age<-
                  test_type = 'wt',which_model="full_batch", 
                  show_all = FALSE, pval_aggregate = FALSE)
 
-sleuth_mod_fourCondition_sleuth_table_gene_age<-
-  sleuth_results(sleuth_mod_fourCondition, "KCHCA_AGE_YR_CURRENT", 
-                 test_type = 'wt',which_model="full_batch", 
-                 show_all = FALSE, pval_aggregate = TRUE)
-
 # Sex
 sleuth_mod_fourCondition_sleuth_table_tx_sex<-
   sleuth_results(sleuth_mod_fourCondition, "M0_KCVSEXM", 
                  test_type = 'wt',which_model="full_batch", 
                  show_all = FALSE, pval_aggregate = FALSE)
-
-sleuth_mod_fourCondition_sleuth_table_gene_sex<-
-  sleuth_results(sleuth_mod_fourCondition, "M0_KCVSEXM", 
-                 test_type = 'wt',which_model="full_batch", 
-                 show_all = FALSE, pval_aggregate = TRUE)
 
 #------------------------------------
 #    Combine and format results
@@ -473,6 +443,62 @@ sleuth_mod_fourCondition_sleuth_full_tx_results<-
     mutate(sleuth_mod_fourCondition_sleuth_table_tx_sex, 
            model_term = "M0_KCVSEXM", effect="SEX", 
            reference_level = "FEMALE", group_2 = "MALE"))
+```
+
+### Extract Gene Level
+
+```{r message=FALSE}
+#---------------
+#  RSTR Effect
+#---------------
+
+# RSTR_TB vs LTBI_TB
+sleuth_mod_fourCondition_sleuth_table_gene_RSTR_TB_LTBI_TB <-
+  sleuth_results(sleuth_mod_fourCondition, "conditionRSTR_TB",
+                 test_type = 'wt', which_model="full_2_batch",
+                 show_all = FALSE, pval_aggregate = TRUE)
+
+#RSTR_MEDIA vs LTBI_MEDIA
+sleuth_mod_fourCondition_sleuth_table_gene_RSTR_MEDIA_LTBI_MEDIA <-
+  sleuth_results(sleuth_mod_fourCondition, "conditionRSTR_MEDIA", 
+                 test_type = 'wt', which_model="full_batch", 
+                 show_all = FALSE, pval_aggregate = TRUE)
+
+#---------------
+#  TB Effect
+#---------------
+
+# LTBI_TB vs  LTBI_MEDIA
+sleuth_mod_fourCondition_sleuth_table_gene_LTBI_TB_LTBI_MEDIA<-
+  sleuth_results(sleuth_mod_fourCondition, "conditionLTBI_TB",
+                 test_type = 'wt', which_model="full_batch",
+                 show_all = FALSE, pval_aggregate = TRUE)
+
+# RSTR_TB vs  RSTR_MEDIA
+sleuth_mod_fourCondition_sleuth_table_gene_RSTR_TB_RSTR_MEDIA<-
+  sleuth_results(sleuth_mod_fourCondition, "conditionRSTR_TB",
+                 test_type = 'wt', which_model="full_3_batch",
+                 show_all = FALSE, pval_aggregate = TRUE)
+
+#---------------
+#  Covariates
+#---------------
+
+# Age
+sleuth_mod_fourCondition_sleuth_table_gene_age<-
+  sleuth_results(sleuth_mod_fourCondition, "KCHCA_AGE_YR_CURRENT", 
+                 test_type = 'wt',which_model="full_batch", 
+                 show_all = FALSE, pval_aggregate = TRUE)
+
+# Sex
+sleuth_mod_fourCondition_sleuth_table_gene_sex<-
+  sleuth_results(sleuth_mod_fourCondition, "M0_KCVSEXM", 
+                 test_type = 'wt',which_model="full_batch", 
+                 show_all = FALSE, pval_aggregate = TRUE)
+
+#------------------------------------
+#    Combine and format results
+#------------------------------------
 
 # GENE
 sleuth_mod_fourCondition_sleuth_full_gene_results<-
