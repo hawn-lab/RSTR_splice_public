@@ -573,6 +573,264 @@ sleuth_mod_fourCondition_sleuth_full_gene_results%>%
     paste(res.dir,"sleuth_mod_fourCondition_sleuth_table_gene_full_results.csv", sep="/"))
 ```
 
+## Interaction Analysis
+
+Run a comparable interaction model with all co-variates.
+
+```{r eval=FALSE}
+### Fit Sleuth models
+# Fit reduced model with covariates but no condition
+sleuth_mod_interaction <- sleuth_fit(SI, 
+                       ~  TB*RSTR + KCHCA_AGE_YR_CURRENT + M0_KCVSEX + project, 
+                                       'full_interaction_batch')
+```
+
+```{r eval=FALSE, include=FALSE}
+save(sleuth_mod_interaction,
+     file="results/sleuth/sleuth_mod_interaction.rdata")
+```
+
+```{r include=FALSE}
+load("results/sleuth/sleuth_mod_interaction.rdata")
+```
+
+#### Wald tests to isolate effects of interest
+
+```{r}
+#---------------
+#  RSTR Effect
+#---------------
+# Main term RSTR
+sleuth_mod_interaction <- sleuth_wt(sleuth_mod_interaction, 
+                                      which_beta = 'RSTRRSTR',
+                                      'full_interaction_batch')
+#---------------
+#  TB Effect
+#---------------
+# Main term TB condition
+sleuth_mod_interaction <- sleuth_wt(sleuth_mod_interaction, 
+                                      which_beta = 'TBTB',
+                                      'full_interaction_batch')
+
+#---------------
+#  Interaction Effect
+#---------------
+# TB:RSTR interaction
+sleuth_mod_interaction <- sleuth_wt(sleuth_mod_interaction, 
+                                      which_beta = 'TBTB:RSTRRSTR',
+                                      'full_interaction_batch')
+
+#---------------
+#  Covariates
+#---------------
+# Sex
+sleuth_mod_interaction<-sleuth_wt(sleuth_mod_interaction, 
+                                    which_beta = 'M0_KCVSEXM', 
+                                    'full_interaction_batch')
+
+# Age
+sleuth_mod_interaction<-sleuth_wt(sleuth_mod_interaction, 
+                                    which_beta = 'KCHCA_AGE_YR_CURRENT',
+                                    'full_interaction_batch')
+```
+
+### Extract Transcript Level
+
+```{r message=FALSE}
+#---------------
+#  RSTR Effect
+#---------------
+
+# Main term RSTR
+sleuth_mod_interaction_sleuth_table_tx_RSTR<-
+  sleuth_results(sleuth_mod_interaction, "RSTRRSTR" ,
+                 test_type = 'wt', which_model="full_interaction_batch",
+                 show_all = FALSE, pval_aggregate = FALSE)
+
+#---------------
+#  TB Effect
+#---------------
+
+# Main term TB
+sleuth_mod_interaction_sleuth_table_tx_TB<-
+  sleuth_results(sleuth_mod_interaction, "TBTB",
+                 test_type = 'wt', which_model="full_interaction_batch",
+                 show_all = FALSE, pval_aggregate = FALSE)
+
+#---------------
+#  Interaction Effect
+#---------------
+
+# TB:RSTR interaction
+sleuth_mod_interaction_sleuth_table_tx_interact<-
+  sleuth_results(sleuth_mod_interaction, "TBTB:RSTRRSTR",
+                 test_type = 'wt', which_model="full_interaction_batch",
+                 show_all = FALSE, pval_aggregate = FALSE)
+
+#---------------
+#  Covariates
+#---------------
+
+# Age
+sleuth_mod_interaction_sleuth_table_tx_age<-
+  sleuth_results(sleuth_mod_interaction, "KCHCA_AGE_YR_CURRENT", 
+                 test_type = 'wt',which_model="full_interaction_batch", 
+                 show_all = FALSE, pval_aggregate = FALSE)
+
+# Sex
+sleuth_mod_interaction_sleuth_table_tx_sex<-
+  sleuth_results(sleuth_mod_interaction, "M0_KCVSEXM", 
+                 test_type = 'wt',which_model="full_interaction_batch", 
+                 show_all = FALSE, pval_aggregate = FALSE)
+
+#------------------------------------
+#    Combine and format results
+#------------------------------------
+
+# TX
+sleuth_mod_interaction_sleuth_full_tx_results<-
+  mutate(sleuth_mod_interaction_sleuth_table_tx_RSTR, 
+         model_term = "pheno", effect="RSTR", 
+         reference_level = "LTBI", group_2 = "RSTR")%>%
+  full_join(
+    mutate(sleuth_mod_interaction_sleuth_table_tx_TB, 
+           model_term = "condition", effect="TB", 
+           reference_level = "MEDIA", group_2 = "TB"))%>%
+  full_join(
+    mutate(sleuth_mod_interaction_sleuth_table_tx_interact, 
+           model_term = "TB:RSTR", effect="interaction", 
+           reference_level = NA, group_2 = NA))%>%
+  full_join(
+    mutate(sleuth_mod_interaction_sleuth_table_tx_age, 
+           model_term = "KCHCA_AGE_YR_CURRENT", effect="AGE", 
+           reference_level = NA, group_2 = NA))%>%
+  full_join(
+    mutate(sleuth_mod_interaction_sleuth_table_tx_sex, 
+           model_term = "M0_KCVSEXM", effect="SEX", 
+           reference_level = "FEMALE", group_2 = "MALE"))
+```
+
+### Extract Gene Level
+
+```{r message=FALSE}
+#---------------
+#  RSTR Effect
+#---------------
+
+# Main term RSTR
+sleuth_mod_interaction_sleuth_table_gene_RSTR<-
+  sleuth_results(sleuth_mod_interaction, "RSTRRSTR" ,
+                 test_type = 'wt', which_model="full_interaction_batch",
+                 show_all = FALSE, pval_aggregate = TRUE)
+
+#---------------
+#  TB Effect
+#---------------
+
+# Main term TB
+sleuth_mod_interaction_sleuth_table_gene_TB<-
+  sleuth_results(sleuth_mod_interaction, "TBTB",
+                 test_type = 'wt', which_model="full_interaction_batch",
+                 show_all = FALSE, pval_aggregate = TRUE)
+
+#---------------
+#  Interaction Effect
+#---------------
+
+# TB:RSTR interaction
+sleuth_mod_interaction_sleuth_table_gene_interact<-
+  sleuth_results(sleuth_mod_interaction, "TBTB:RSTRRSTR",
+                 test_type = 'wt', which_model="full_interaction_batch",
+                 show_all = FALSE, pval_aggregate = TRUE)
+
+#---------------
+#  Covariates
+#---------------
+
+# Age
+sleuth_mod_interaction_sleuth_table_gene_age<-
+  sleuth_results(sleuth_mod_interaction, "KCHCA_AGE_YR_CURRENT", 
+                 test_type = 'wt',which_model="full_interaction_batch", 
+                 show_all = FALSE, pval_aggregate = TRUE)
+
+# Sex
+sleuth_mod_interaction_sleuth_table_gene_sex<-
+  sleuth_results(sleuth_mod_interaction, "M0_KCVSEXM", 
+                 test_type = 'wt',which_model="full_interaction_batch", 
+                 show_all = FALSE, pval_aggregate = TRUE)
+
+#------------------------------------
+#    Combine and format results
+#------------------------------------
+
+# GENE
+sleuth_mod_interaction_sleuth_full_gene_results<-
+  mutate(sleuth_mod_interaction_sleuth_table_gene_RSTR, 
+         model_term = "pheno", effect="RSTR", 
+         reference_level = "LTBI", group_2 = "RSTR")%>%
+  full_join(
+    mutate(sleuth_mod_interaction_sleuth_table_gene_TB, 
+           model_term = "condition", effect="TB", 
+           reference_level = "MEDIA", group_2 = "TB"))%>%
+  full_join(
+    mutate(sleuth_mod_interaction_sleuth_table_gene_interact, 
+           model_term = "TB:RSTR", effect="interaction", 
+           reference_level = NA, group_2 = NA))%>%
+  full_join(
+    mutate(sleuth_mod_interaction_sleuth_table_gene_age, 
+           model_term = "KCHCA_AGE_YR_CURRENT", effect="AGE", 
+           reference_level = NA, group_2 = NA))%>%
+  full_join(
+    mutate(sleuth_mod_interaction_sleuth_table_gene_sex, 
+           model_term = "M0_KCVSEXM", effect="SEX", 
+           reference_level = "FEMALE", group_2 = "MALE"))
+```
+
+#### Summarize results
+
+```{r}
+# Transcripts
+sleuth_mod_interaction_sleuth_full_tx_results%>%
+  filter(effect%in%c("TB","RSTR","interaction"))%>%
+  group_by(effect)%>%
+  summarise(FDR.05 = length(which(qval<0.05)), FDR.1 = length(which(qval<0.1)),
+            FDR.2 = length(which(qval<0.2)), FDR.3 = length(which(qval<0.3)), 
+            FDR.4 = length(which(qval<0.4)), FDR.5 = length(which(qval<0.5)))%>%
+  kable(align=c("l","c","c", "c", "c", "c"),
+      col.names = c("Effect",  "0.05", "0.1", "0.2","0.3","0.4","0.5")) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = FALSE) %>% 
+  add_header_above(c(" " = 1, " FDR <"=6))
+  
+
+# Genes
+
+sleuth_mod_interaction_sleuth_full_gene_results%>%
+  filter(effect%in%c("TB","RSTR","interaction"))%>%
+  group_by(effect)%>%
+  summarise(FDR.05 = length(which(qval<0.05)), FDR.1 = length(which(qval<0.1)),
+            FDR.2 = length(which(qval<0.2)), FDR.3 = length(which(qval<0.3)), 
+            FDR.4 = length(which(qval<0.4)), FDR.5 = length(which(qval<0.5)))%>%
+  kable(align=c("l","c","c", "c", "c", "c"),
+      col.names = c("Effect",  "0.05", "0.1", "0.2","0.3","0.4","0.5")) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = FALSE) %>% 
+  add_header_above(c(" " = 1, " FDR <"=6))
+
+
+```
+
+### Save output
+
+```{r}
+# Aggregated results
+sleuth_mod_interaction_sleuth_full_tx_results%>%
+  write.csv(file=
+    paste(res.dir,"sleuth_mod_interaction_sleuth_table_tx_full_results.csv", sep="/"))
+
+sleuth_mod_interaction_sleuth_full_gene_results%>%
+  write.csv(file=
+    paste(res.dir,"sleuth_mod_interaction_sleuth_table_gene_full_results.csv", sep="/"))
+```
+
 # R session
 
 ```{r}
