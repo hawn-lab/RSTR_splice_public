@@ -178,11 +178,11 @@ sleuth_mod_fourCondition <- sleuth_fit(sleuth_mod_fourCondition,
 
 ```{r eval=FALSE, include=FALSE}
 save(sleuth_mod_fourCondition,
-     file="results/sleuth/sleuth_mod_fourCondition.RData")
+     file="results/sleuth/sleuth_mod_fourCondition.rdata")
 ```
 
 ```{r include=FALSE}
-load("results/sleuth/sleuth_mod_fourCondition.RData")
+load("results/sleuth/sleuth_mod_fourCondition.rdata")
 ```
 
 ### Assess Batch
