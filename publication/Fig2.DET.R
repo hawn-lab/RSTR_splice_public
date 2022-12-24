@@ -5,9 +5,8 @@ library(patchwork)
 library(cowplot)
 
 #### Volcano plots (A,B) ####
-##### Data #####
 sleuth_results_tx<-
-  read.csv("results/sleuth/SO_adv60_PC_fourCondition_sleuth_table_tx_full_results.csv",
+  read.csv("results/sleuth/sleuth_mod_fourCondition_sleuth_table_tx_full_results.csv",
            row.names = "X")%>%
   filter(model_term=="condition" & effect=="RSTR")%>%
   mutate(p_group = case_when(qval<0.001 ~ "FDR < 0.001",
@@ -59,7 +58,7 @@ volcano_tx <- sleuth_results_tx_label %>%
   geom_text_repel(data=filter(sleuth_results_tx_label,
                               !is.na(label) & label_group == "down"), 
                   aes(label = label), size = 3,
-                  nudge_x = -2.2 - filter(sleuth_results_tx_label, 
+                  nudge_x = -2.4 - filter(sleuth_results_tx_label, 
                                         !is.na(label) & label_group == "down")$b, 
                   segment.size = 0.2, angle = 0, hjust = 0, box.padding = 0.5,
                   segment.color = "grey50", direction = "y",
@@ -68,7 +67,7 @@ volcano_tx <- sleuth_results_tx_label %>%
   geom_text_repel(data=filter(sleuth_results_tx_label, 
                               !is.na(label) & label_group == "up"), 
                   aes(label = label), size = 3,
-                  nudge_x = 2 + filter(sleuth_results_tx_label, 
+                  nudge_x = 2.4 - filter(sleuth_results_tx_label, 
                                        !is.na(label) & label_group == "up")$b, 
                   segment.size = 0.2, angle = 0, hjust = 0, box.padding = 0.5,
                   segment.color = "grey50", direction = "y",
@@ -85,18 +84,18 @@ volcano_tx <- sleuth_results_tx_label %>%
         strip.background = element_blank(),
         plot.title = element_text(vjust = -8)) +
   facet_wrap(~facet_label) +
-  lims(x=c(-2.1,2.1))
+  lims(x=c(-2.4,2.4))
 # volcano_tx
 
 #### Upset plot ####
 ##### Data #####
 DET <- 
-  read.csv("results/sleuth/sleuth_model_results/four_condition_contrasts/wald_tests/sleuth_mod_fourCondition_sleuth_table_tx_full_results.csv", 
+  read.csv("results/sleuth/sleuth_mod_fourCondition_sleuth_table_tx_full_results.csv", 
            row.names = "X") %>% 
   filter(qval < 0.05 & effect=="RSTR")
 
 bulkDEG_interaction<-
-  read.csv("results/comp_to_bulkRNASeq/RSTR.interaction_age.sex.batch.model.results.csv.gz")%>%
+  read.csv("data_raw/bulk_analysis/RSTR.interaction_age.sex.batch.model.results.csv.gz")%>%
   filter(variable=="conditionTB:Sample_GroupRSTR"& FDR<0.2)%>%
   select(gene) %>% 
   rename(ext_gene=gene) %>% 

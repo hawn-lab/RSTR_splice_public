@@ -4,13 +4,13 @@ library(patchwork)
 
 #### Data ####
 #lmekin DEG
-DEG.contrast <-  read_csv("results/DEG_contrast_compare.csv") %>% 
+DEG.contrast <-  read_csv("results/comp_to_bulkRNASeq/DEG_contrast_compare.csv") %>% 
   mutate(label = recode(label, 
                         "RSTR - LTBI in Mtb"="Mtb\nLTBI <---  ---> RSTR",
                         "RSTR - LTBI in media"="Media\nLTBI <---  ---> RSTR"))
 #DET
 DET <- 
-  read.csv("results/sleuth/sleuth_model_results/four_condition_contrasts/wald_tests/sleuth_mod_fourCondition_sleuth_table_tx_full_results.csv", 
+  read.csv("results/sleuth/sleuth_mod_fourCondition_sleuth_table_tx_full_results.csv", 
            row.names = "X")
 
 #Format DET data

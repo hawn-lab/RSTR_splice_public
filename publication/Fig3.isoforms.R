@@ -10,7 +10,7 @@ genes.OI <- c("PDE4A","ZEB2","TIMP1","ACSL4","LST1","GAPDH")
 sig <- 0.05
 
 #Transcript results
-sleuth_results_tx <- read.csv("results/sleuth/SO_adv60_PC_fourCondition_sleuth_table_tx_full_results.csv", 
+sleuth_results_tx <- read.csv("results/sleuth/sleuth_mod_fourCondition_sleuth_table_tx_full_results.csv", 
                               row.names = "X") %>%
   filter(effect == "RSTR")%>%
   mutate(stim = ifelse(grepl("_TB", reference_level), "Mtb",
@@ -71,7 +71,7 @@ for(i in genes.OI){
     names(plot_palette) <- c(NA, all_tx)
   }
   # drop unused colors
-  plot_palette<-plot_palette[-which(is.na(names(plot_palette)))] 
+  plot_palette<-plot_palette[!is.na(names(plot_palette))] 
   
   #### Plot ####
   tx_plot<-

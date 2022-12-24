@@ -1,6 +1,6 @@
 library(tidyverse)
 
-load("results/sleuth/sleuth_model_results/four_condition_contrasts/sleuth_mod_fourCondition.RData")
+load("results/sleuth/sleuth_mod_fourCondition.RData")
 
 # Plot sigma-squared +/- co-var of interest
 ## Full model
